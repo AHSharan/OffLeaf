@@ -1,0 +1,12 @@
+# Stratified PlantVillage splits, 80/10/10, one set per seed.
+# Run once; every experiment then loads these CSVs from disk.
+#
+#   python data/splits.py --config configs/splits.yaml
+
+dataset_name: plantvillage
+source_dir: data/raw/plantvillage/color
+out_dir: data/splits
+class_map: data/class_map.csv
+class_map_column: plantvillage_name
+ratios: [0.8, 0.1, 0.1]
+seeds: [0, 1, 2]

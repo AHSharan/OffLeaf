@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "offleaf"
+version = "0.1.0"
+description = "Measuring and reducing background reliance in plant leaf disease classifiers"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+[project.urls]
+Homepage = "https://github.com/AHSharan/OffLeaf"
+
+# The repo uses a flat layout (configs/, data/, masks/, models/, train/, ...)
+# as specified. Those directories are imported relative to the repo root when
+# scripts are run from there, which is the supported workflow:
+#
+#   python scripts/train.py --config configs/E0_resnet50_seed0.yaml
+#
+# They are deliberately NOT declared as installable top-level packages, because
+# names like `data`, `train`, `eval` and `models` would collide with other
+# packages in a shared site-packages. See CLAUDE.md section 9.
+[tool.setuptools]
+py-modules = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-v --strict-markers"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "gpu: requires a CUDA device",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]

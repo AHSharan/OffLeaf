@@ -1,0 +1,31 @@
+# E0 - baseline, no intervention. Establishes lab accuracy and is the reference
+# point every other regime is compared against. Also the input to noyan_test.
+#
+#   python train/train.py --config configs/E0_resnet50_seed0.yaml
+
+exp_id: E0_vit_small
+seed: 0
+regime: baseline
+
+model: vit_small_patch16_224
+pretrained: true
+num_classes: 38
+
+dataset_name: plantvillage
+split_dir: data/splits
+
+img_size: 224
+epochs: 10
+batch_size: 32
+lr: 3.0e-4
+weight_decay: 1.0e-4
+optimizer: adamw
+amp: true
+
+num_workers: 4
+log_every: 50
+deterministic: true
+
+# Baseline uses no masks.
+leaf_mask_dir: null
+lesion_mask_dir: null

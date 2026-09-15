@@ -1,0 +1,58 @@
+# OffLeaf requirements
+#
+# NOTE: torch/torchvision are NOT listed here with versions on purpose.
+# They must be installed from the CUDA wheel index first, because the default
+# PyPI wheels on Windows are CPU-only. On this machine:
+#
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+#
+# Installed and verified here: torch 2.11.0+cu128 (CUDA 12.8, sm_86).
+# Pick the cu-index that matches your driver if you are on a different machine.
+
+# --- core ---
+numpy>=1.26
+pandas>=2.0
+pyyaml>=6.0
+tqdm>=4.66
+scipy>=1.11
+scikit-learn>=1.3
+
+# --- vision ---
+timm>=1.0.0
+opencv-python>=4.9
+Pillow>=10.0
+albumentations>=2.0
+
+# WINDOWS TRAP: albumentations 2.x depends on stringzilla. Version 5.1.2 ships
+# no cp311 win_amd64 wheel, so pip tries to build it from source and fails with
+# "failed-wheel-build-for-install" unless MSVC build tools are present. 5.1.1
+# has a wheel. Install it BEFORE albumentations, or the whole pip transaction
+# aborts and nothing gets installed:
+#   pip install "stringzilla==5.1.1" && pip install albumentations
+stringzilla==5.1.1
+
+# --- segmentation (masks/) ---
+segment-anything>=1.0
+segmentation-models-pytorch>=0.3.3
+transformers>=4.40           # SegFormer-B0 for the S0 lesion segmenter
+
+# --- explanations (explain/) ---
+grad-cam>=1.5.0              # provides pytorch_grad_cam: gradcam, hirescam
+zennit>=0.5.1                # LRP (EpsilonPlusFlat) for ResNet
+shap>=0.44                   # optional KernelSHAP spot check
+
+# --- plotting / reporting ---
+matplotlib>=3.8
+
+# --- data acquisition ---
+kaggle>=1.6
+
+# --- release/ ---
+huggingface-hub>=0.23
+gradio>=4.0
+
+# --- optional logging (behind a flag; CSV is the default) ---
+wandb>=0.17
+
+# --- dev ---
+pytest>=8.0

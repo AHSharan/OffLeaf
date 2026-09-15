@@ -1,0 +1,7 @@
+dataset_name: synthetic
+source_dir: data/raw/_synthetic/color
+out_dir: data/splits
+class_map: data/class_map.csv
+class_map_column: plantvillage_name
+ratios: [0.6, 0.2, 0.2]
+seeds: [0]
