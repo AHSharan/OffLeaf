@@ -31,6 +31,7 @@ Measured on the dev machine, 2026-09-15:
 | VRAM | **6.0 GiB** (6441926656 bytes) |
 | Compute capability | sm_86 (Ampere), 30 SMs |
 | Driver | 596.08 (supports up to CUDA 13.2) |
+| System RAM | **16 GiB** |
 | Python | **3.11.4** (`py -3.11`) |
 | Torch | 2.11.0+cu128 (CUDA 12.8, cuDNN 9.19) |
 | Repo root | `F:\OffLeaf` (external USB SSD, PiBOX INSPIRE, 1.9 TB, exFAT) |
@@ -62,6 +63,54 @@ Activate the venv:
 
 Batch sizes must never be hardcoded — they come from the config, so a run on a
 bigger GPU reproduces by changing the yaml only.
+
+### 16 GB system RAM: the DataLoader is the memory problem, not the GPU
+
+This bit twice during setup, and both failure modes are misleading.
+
+On Windows, DataLoader workers are **spawned**, not forked, so each one imports
+torch/scipy/cv2 afresh and commits roughly **2.3 GB**. Two symptoms, both of
+which look like something else:
+
+```
+RuntimeError: bad allocation                     # num_workers: 4
+SystemError: error return without exception set  # during a worker's import
+```
+
+Neither is a CUDA error. A real GPU OOM says **"CUDA out of memory"**. Both of
+the above are *host* allocation failures, so **lower `num_workers` before you
+touch `batch_size`** — the GPU is not the problem. Measured during the E0 smoke
+test: batch 32 ResNet-50 at 224px uses only ~2.1 GB of the 6 GB VRAM.
+
+The binding constraint is Windows **commit charge**, not physical RAM. Check it
+with:
+
+```powershell
+(Get-Counter '\Memory\Committed Bytes').CounterSamples[0].CookedValue / 1MB
+(Get-Counter '\Memory\Commit Limit').CounterSamples[0].CookedValue / 1MB
+```
+
+At the failure this machine was at **99%** (55,084 / 55,474 MB).
+
+**Crashed runs leak.** A killed training run leaves its main process and its
+spawned workers behind, still holding commit (12.9 GB across four processes in
+one instance here) and sometimes GPU memory. They do not clean themselves up.
+After any crash, check and clear them before re-running:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+  Select-Object ProcessId, @{n='CommitMB';e={[math]::Round($_.PageFileUsage/1KB)}}, CommandLine
+```
+
+Config guidance for this machine:
+
+- `num_workers: 2` for training, and `val_num_workers: 0` (the default).
+  Validation must not spawn a second set of workers while training workers are
+  alive — that doubling is what exhausted commit.
+- `persistent_workers: false` (the default) so train workers are torn down
+  between epochs.
+- `--num_workers 0` is the safe fallback; it spawns nothing and always runs.
+- Closing Chrome frees a meaningful amount (24 processes during setup).
 
 ## 3. Repo layout
 
@@ -102,7 +151,7 @@ Untracked, on disk only: `data/raw/`, `data/masks/`, `data/counterfactual/`,
 
 | Dataset | Path | Role |
 |---|---|---|
-| PlantVillage | `data/raw/plantvillage/{color,segmented}/<class>/*.jpg` | train (38 classes) |
+| PlantVillage | `data/raw/plantvillage/{color,grayscale,segmented}/<class>/*.jpg` | train (38 classes) |
 | PlantDoc | `data/raw/plantdoc/{train,test}/<class>/*.jpg` | field, test-only |
 | Tomato-Village | `data/raw/tomato_village/<class>/*.jpg` | field, test-only |
 | Field-PlantVillage | `data/raw/field_plantvillage/<class>/*.jpg` | field, test-only |
@@ -125,6 +174,28 @@ returning `image, label, leaf_mask, lesion_mask` (zeros when a mask is absent).
 Albumentations transforms, masks passed jointly so every geometric op applies
 identically to image and masks. Also `get_transforms(split, copypaste=False,
 copypaste_p=0.5, bg_bank=None)`.
+
+### PlantVillage state (already downloaded)
+
+Source: **`abdallahalidev/plantvillage-dataset`** on Kaggle (~2.2 GB zipped).
+
+```bash
+kaggle datasets download abdallahalidev/plantvillage-dataset -p data/raw/_pv_full --unzip
+```
+
+Then the three variant folders were moved up to `data/raw/plantvillage/`.
+
+- `color/`, `grayscale/`, `segmented/` — 38 classes each, 54,305 images each
+  (`segmented/` has one extra file, 54,306; harmless, not yet identified).
+- All 38 folder names match `class_map.csv` exactly — `data/splits.py` ran with
+  **no** unmapped-folder warnings, which is the check that the map is right.
+- Splits: 43,444 train / 5,430 val / 5,431 test per seed.
+
+**Do not substitute `mohitsingh1804/plantvillage`.** It was tried first and has
+no `segmented/` variant at all — only colour images pre-split into `train/val`.
+The `bgremoval` regime (E1c, E3b) trains on `segmented/`, so that dataset makes
+two of the specified experiments impossible. The copy was deleted to avoid two
+competing sources of truth.
 
 ### PlantDoc state (already downloaded)
 
@@ -193,6 +264,18 @@ These are real and will bite a new contributor on this machine.
    executable is missing. Use `py -3.11`.
 6. pip's temp dir is redirected to `F:\.pip-tmp` for large wheels, because `C:`
    has very little free space. Set `TEMP`/`TMP` before big installs.
+7. **`stringzilla` breaks `pip install albumentations` on Windows.**
+   albumentations 2.x depends on it; version 5.1.2 ships no cp311 win_amd64
+   wheel, so pip tries to compile it and the **entire transaction aborts** —
+   meaning nothing in the command gets installed, not just albumentations.
+   Install the pinned version first:
+   ```bash
+   pip install "stringzilla==5.1.1"
+   pip install -r requirements.txt
+   ```
+8. Disk space is tight on the internal drives (C: ~14 GB, D: ~6 GB free). Keep
+   large artifacts on `F:`. 14 GB of stale pip cache was purged during setup;
+   `pip cache purge` is the first thing to try if C: fills again.
 
 ## 9. Open decisions — need a human answer
 

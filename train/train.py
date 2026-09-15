@@ -76,7 +76,15 @@ def build_loaders(cfg: dict[str, Any], repo: Path) -> tuple[DataLoader, DataLoad
     )
 
     batch_size = int(cfg.get("batch_size", 32))
-    workers = int(cfg.get("num_workers", 4))
+    workers = int(cfg.get("num_workers", 2))
+    # Validation gets its own worker count, defaulting to 0. On Windows workers
+    # are spawned, not forked, so each re-imports torch and costs ~1 GB of
+    # commit. With persistent train workers alive during validation the peak is
+    # doubled, which is enough to exhaust commit on a 16 GB machine and kill the
+    # run with "bad allocation" or a bare SystemError during a worker import.
+    # Validation is infrequent and short, so 0 costs little.
+    val_workers = int(cfg.get("val_num_workers", 0))
+    persistent = bool(cfg.get("persistent_workers", False))
     g = torch.Generator()
     g.manual_seed(seed)
 
@@ -89,15 +97,15 @@ def build_loaders(cfg: dict[str, Any], repo: Path) -> tuple[DataLoader, DataLoad
         drop_last=False,
         worker_init_fn=seed_worker,
         generator=g,
-        persistent_workers=workers > 0,
+        persistent_workers=persistent and workers > 0,
     )
     val_loader = DataLoader(
         val_ds,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=workers,
+        num_workers=val_workers,
         pin_memory=True,
-        persistent_workers=workers > 0,
+        persistent_workers=persistent and val_workers > 0,
     )
     return train_loader, val_loader, num_classes
 
@@ -204,9 +212,12 @@ def train(cfg: dict[str, Any], repo: Path) -> dict[str, Any]:
             seen += labels.size(0)
 
             if step % log_every == 0:
+                # flush: these runs are long and usually backgrounded, where
+                # Python would otherwise buffer progress into invisibility.
                 print(
                     f"  e{epoch} s{step}/{len(train_loader)} "
-                    f"ce={ce.item():.4f} acc={correct / max(seen, 1):.4f}"
+                    f"ce={ce.item():.4f} acc={correct / max(seen, 1):.4f}",
+                    flush=True,
                 )
 
         scheduler.step()
@@ -228,7 +239,8 @@ def train(cfg: dict[str, Any], repo: Path) -> dict[str, Any]:
         history.append(row)
         print(
             f"  epoch {epoch}: train_ce={train_loss:.4f} train_acc={train_acc:.4f} "
-            f"val_loss={val_loss:.4f} val_acc={val_acc:.4f}"
+            f"val_loss={val_loss:.4f} val_acc={val_acc:.4f}",
+            flush=True,
         )
 
         if val_acc > best_acc:
@@ -273,6 +285,9 @@ def main() -> None:
     ap.add_argument(
         "--limit_batches", type=int, default=None, help="stop each epoch early (smoke tests)"
     )
+    ap.add_argument(
+        "--num_workers", type=int, default=None, help="override config.num_workers (0 = no spawn)"
+    )
     args = ap.parse_args()
 
     repo = Path(__file__).resolve().parents[1]
@@ -285,6 +300,8 @@ def main() -> None:
         cfg["epochs"] = args.epochs
     if args.limit_batches is not None:
         cfg["limit_batches"] = args.limit_batches
+    if args.num_workers is not None:
+        cfg["num_workers"] = args.num_workers
 
     train(cfg, repo)
 
