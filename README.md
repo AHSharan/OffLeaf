@@ -111,7 +111,7 @@ Each run writes `runs/<exp_id>/<seed>/` containing `config.yaml`, `metrics.json`
 
 ## Status
 
-Phase 1 of 5. Implemented: `data/` (class map, splits, dataset), `models/`,
+Phase 1 of 5 complete. Implemented: `data/` (class map, splits, dataset), `models/`,
 `train/` **baseline regime only**, `configs/E0`.
 
 The `cam_penalty`, `copypaste` and `bgremoval` regimes raise `NotImplementedError`

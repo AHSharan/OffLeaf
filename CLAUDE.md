@@ -228,13 +228,32 @@ This is enforced by `tests/test_metrics_refuse_pseudo.py`.
 | Phase | Contents | Status |
 |---|---|---|
 | 0 | Environment, datasets, SAM checkpoint, git | **done** |
-| 1 | layout, requirements, `data/`, `models/`, `train/` baseline, `configs/E0` | in progress |
+| 1 | layout, requirements, `data/`, `models/`, `train/` baseline, `configs/E0` | **done** |
 | 2 | `masks/` (leaf, import, segmenter, pseudo-label, verify), `counterfactual/` | not started |
 | 3 | `cam_penalty`, `copypaste`, `bgremoval` regimes; all section 10 tests | not started |
 | 4 | `explain/`, `eval/` metrics, `noyan_test.py` | not started |
 | 5 | configs E1-E5, `run_all.sh`, `release/` | not started |
 
-Phase 1 ends with a **2-epoch E0 ResNet-50 seed-0 smoke test**, output shown.
+### Phase 1 smoke test result (2026-09-15)
+
+`python train/train.py --config configs/E0_resnet50_seed0.yaml --epochs 2 --num_workers 0`
+
+| epoch | train_ce | train_acc | val_loss | val_acc |
+|---|---|---|---|---|
+| 0 | 0.4445 | 0.8829 | 0.0463 | 0.9860 |
+| 1 | 0.0435 | 0.9870 | 0.0218 | **0.9936** |
+
+**Read this number with suspicion — it is the premise of the project, not a
+success.** 99.4% validation accuracy after two epochs on a 38-class problem is
+the well-documented PlantVillage result, and it is exactly what motivates the
+work: the val split is drawn from the same uniform-background lab imagery as
+training, so a model keying on background and capture setup scores nearly
+perfectly here and still collapses on field photographs. Treat E0 as the
+reference point the interventions are measured against. The number that matters
+is the lab-to-field gap, not this.
+
+Runtime note: this run used `--num_workers 0`, so it was data-bound (GPU idle
+between batches, ~35 min for 2 epochs). VRAM peaked around 2.1 GB of 6 GB.
 
 After each phase: update this file and `README.md` with exact commands, and list
 any assumption a human should verify.
