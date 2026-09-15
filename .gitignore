@@ -1,0 +1,19 @@
+# Virtual environment
+.venv/
+
+# Datasets (large, re-downloadable)
+data/raw/
+data/masks/
+data/counterfactual/
+
+# Experiment outputs and model weights
+runs/
+weights/
+*.pt
+*.pth
+
+# Python
+__pycache__/
+
+# Credentials
+.kaggle/
