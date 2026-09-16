@@ -1,0 +1,10 @@
+# Leaf masks for PlantVillage colour images.
+#   python masks/leaf_masks.py --config configs/leaf_masks_plantvillage.yaml
+
+image_root: data/raw/plantvillage/color
+mask_root: data/masks/leaf
+checkpoint: weights/sam_vit_b_01ec64.pth
+model_type: vit_b
+score_threshold: 0.85
+mobile_sam: false
+seed: 0
