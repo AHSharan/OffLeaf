@@ -229,7 +229,7 @@ This is enforced by `tests/test_metrics_refuse_pseudo.py`.
 |---|---|---|
 | 0 | Environment, datasets, SAM checkpoint, git | **done** |
 | 1 | layout, requirements, `data/`, `models/`, `train/` baseline, `configs/E0` | **done** |
-| 2 | `masks/` (leaf, import, segmenter, pseudo-label, verify), `counterfactual/` | not started |
+| 2 | `masks/` (leaf, import, segmenter, pseudo-label, verify), `counterfactual/` | code done; mask generation running |
 | 3 | `cam_penalty`, `copypaste`, `bgremoval` regimes; all section 10 tests | not started |
 | 4 | `explain/`, `eval/` metrics, `noyan_test.py` | not started |
 | 5 | configs E1-E5, `run_all.sh`, `release/` | not started |
@@ -257,6 +257,62 @@ between batches, ~35 min for 2 epochs). VRAM peaked around 2.1 GB of 6 GB.
 
 After each phase: update this file and `README.md` with exact commands, and list
 any assumption a human should verify.
+
+## 7a. Phase 2 findings — read before trusting any mask
+
+### Plan A is confirmed viable
+
+PlantSeg (`weitianqi/plantseg`, 1.7 GB) was checked before committing to it:
+**11,458 images with human disease-area masks across 35 plants.** Tomato is the
+second-largest crop at **901 images** (623 train / 97 val / 181 test) covering
+**7 of PlantVillage's 9 tomato disease classes**.
+
+Not covered, so no pseudo-labels are possible for them:
+
+- `Tomato___Target_Spot`
+- `Tomato___Spider_mites Two-spotted_spider_mite`
+- Pepper and Orange are absent from PlantSeg as crops entirely.
+
+Import result: 11,458/11,458 masks written, 0 missing, 0 empty, mean lesion
+coverage 21.7%. Encoding was *verified*, not assumed — each annotation PNG is
+single-channel uint8 with exactly one non-zero class index (97 = tomato
+bacterial leaf spot, 1 = apple black rot), consistent per disease, so
+binarising on `> 0` is correct.
+
+### Leaf masks: SAM's top-scoring candidate is often the wrong one
+
+The first PlantDoc pass produced **989/2581 (38.3%) HSV fallbacks whose median
+coverage was 0.82 and upper quartile 0.95** — they were selecting every green
+thing in the frame, not a leaf, while looking like successes on disk. SAM's own
+masks averaged 0.33 coverage on the same data.
+
+Three causes, all now fixed in `masks/leaf_masks.py`:
+
+1. Only SAM's output was checked for degeneracy; the HSV fallback never was.
+2. The fallback took the **largest** green component. In a field photo that is
+   the surrounding vegetation, not the subject leaf. It now takes the component
+   containing the image **centre**.
+3. Only SAM's best-scoring candidate was considered. The three candidates are
+   coarse/medium/fine and the coarse one is frequently the whole scene, so the
+   highest-scoring mask is often the useless one. All three are now tried in
+   score order.
+
+`assess_reliability` gates both paths at 0.85 coverage. Failing masks are still
+written (the run stays resumable) but flagged `reliable=0` in
+`_leaf_mask_log.csv`. **Downstream code must filter on that flag** —
+`counterfactual/build.py` does, and warns if the log predates it.
+
+Matched 150-image PlantDoc sample, before → after: fallbacks 24 → 11, ten images
+newly flagged unreliable instead of silently mismasked, masks covering >85% of
+frame 8.7% → 5.3%. Mean coverage among reliable masks 0.39.
+
+Expected rates: PlantVillage ~4% fallback (single centred leaf on grey);
+PlantDoc much higher (cluttered field scenes). Throughput ~2.1–2.8 img/s, so
+the full PlantVillage colour set is roughly 5.4 hours. The run is resumable —
+re-running skips existing PNGs before it even loads the model.
+
+**PlantDoc masks generated before commit `294da72` predate the fix and should be
+regenerated.**
 
 ## 8. Machine-specific setup quirks
 
