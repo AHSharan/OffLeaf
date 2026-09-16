@@ -90,26 +90,78 @@ def select_mask(cfg: dict[str, Any], leaf: Tensor, lesion: Tensor) -> Tensor:
     return mask
 
 
+def variant_key(name: str) -> str:
+    """Normalise a PlantVillage filename to the part that is stable across variants.
+
+    Filenames are *not* identical between ``color/`` and ``segmented/``. Two
+    differences occur, sometimes together::
+
+        color/Apple___healthy/0055dd26-...___RS_HL 5672.JPG
+        segmented/Apple___healthy/0055dd26-...___RS_HL 5672_final_masked.jpg
+
+        color/Corn_(maize)___Common_rust_/RS_Rust 1818.JPG
+        segmented/Corn_(maize)___Common_rust_/17d09699-...___RS_Rust 1818_final_masked.jpg
+
+    i.e. a ``_final_masked`` suffix, a case change on the extension, and in ~2%
+    of cases a UUID prefix present in one variant but not the other. What
+    survives in every case is the original capture id after ``___``.
+    """
+    stem = Path(name).stem
+    if "___" in stem:
+        stem = stem.split("___", 1)[1]
+    if stem.endswith("_final_masked"):
+        stem = stem[: -len("_final_masked")]
+    return stem.strip().lower()
+
+
+def build_variant_index(class_dir: Path) -> dict[str, Path]:
+    """Map :func:`variant_key` -> file, for one class folder of a variant."""
+    index: dict[str, Path] = {}
+    if not class_dir.exists():
+        return index
+    for p in sorted(class_dir.iterdir()):
+        if p.is_file():
+            index.setdefault(variant_key(p.name), p)
+    return index
+
+
 def resolve_paths(paths: list[Path], cfg: dict[str, Any]) -> list[Path]:
     """Apply ``image_variant`` so ``bgremoval`` trains on ``segmented/``.
 
-    Splits are generated once against ``color/``; this rewrites that one path
-    component rather than maintaining a parallel set of split files, so both
-    regimes provably see the same images in the same split.
+    Splits are generated once against ``color/``; this maps each path onto its
+    counterpart in the requested variant rather than maintaining a parallel set
+    of split files, so both regimes provably see the same images in the same
+    split.
 
     Raises:
-        FileNotFoundError: If the rewritten paths do not exist.
+        FileNotFoundError: If any path has no counterpart. It fails on the whole
+            list rather than dropping the missing ones - silently shrinking the
+            training set would make bgremoval incomparable to the regimes it is
+            supposed to be measured against.
     """
     variant = cfg.get("image_variant", "color")
     if variant == "color":
         return paths
 
-    out = [Path(*[variant if part == "color" else part for part in p.parts]) for p in paths]
-    missing = [p for p in out[:20] if not p.exists()]
+    indexes: dict[Path, dict[str, Path]] = {}
+    out: list[Path] = []
+    missing: list[Path] = []
+
+    for p in paths:
+        class_dir = Path(*[variant if part == "color" else part for part in p.parts[:-1]])
+        if class_dir not in indexes:
+            indexes[class_dir] = build_variant_index(class_dir)
+        hit = indexes[class_dir].get(variant_key(p.name))
+        if hit is None:
+            missing.append(p)
+        else:
+            out.append(hit)
+
     if missing:
         raise FileNotFoundError(
-            f"image_variant={variant!r} but {len(missing)} of the first 20 paths do not exist, "
-            f"e.g. {missing[0]}. Is data/raw/plantvillage/{variant}/ present?"
+            f"image_variant={variant!r}: {len(missing)} of {len(paths)} images have no "
+            f"counterpart, e.g. {missing[0].name} in {missing[0].parent.name}. "
+            f"Is data/raw/plantvillage/{variant}/ complete?"
         )
     return out
 
