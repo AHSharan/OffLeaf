@@ -158,6 +158,91 @@ class LeafDataset(Dataset):
         )
 
 
+class CopyPasteBackground(A.DualTransform):
+    """Replace the background outside the leaf mask with one from a bank.
+
+    The ``copypaste`` regime: the leaf is held fixed while its background is
+    swapped during training, so background pixels carry no consistent class
+    signal and the shortcut stops paying off.
+
+    Runs **before** the geometric transforms in the pipeline, so the composite
+    is then cropped and flipped as one image. Masks are returned unchanged -
+    the leaf has not moved, only what surrounds it.
+
+    Falls through unchanged when the leaf mask is empty or covers the whole
+    frame: with no background to replace, compositing would either do nothing
+    or paste over the leaf itself.
+    """
+
+    def __init__(self, bg_paths: list[Path], p: float = 0.5):
+        super().__init__(p=p)
+        if not bg_paths:
+            raise ValueError("CopyPasteBackground needs a non-empty background bank")
+        self.bg_paths = list(bg_paths)
+
+    @property
+    def targets_as_params(self) -> list[str]:
+        return ["masks"]
+
+    def get_params_dependent_on_data(self, params: dict, data: dict) -> dict:
+        masks = data.get("masks")
+        image = data["image"]
+        h, w = image.shape[:2]
+
+        leaf = None
+        if masks is not None and len(masks):
+            leaf = np.asarray(masks[0])
+        if leaf is None or leaf.sum() == 0 or float((leaf > 0).mean()) > 0.98:
+            return {"background": None, "leaf": None}
+
+        path = self.bg_paths[int(np.random.randint(len(self.bg_paths)))]
+        bg = cv2.imread(str(path), cv2.IMREAD_COLOR)
+        if bg is None:
+            raise OSError(f"Could not read background: {path}")
+        bg = cv2.cvtColor(bg, cv2.COLOR_BGR2RGB)
+        if bg.shape[:2] != (h, w):
+            bg = cv2.resize(bg, (w, h), interpolation=cv2.INTER_LINEAR)
+        return {"background": bg, "leaf": (leaf > 0).astype(np.uint8)}
+
+    def apply(self, img: np.ndarray, **params) -> np.ndarray:
+        bg, leaf = params.get("background"), params.get("leaf")
+        if bg is None or leaf is None:
+            return img
+        # Feather so the composite edge is not a hard seam the model can learn.
+        alpha = cv2.GaussianBlur(leaf.astype(np.float32), (5, 5), 0)[..., None]
+        return (alpha * img.astype(np.float32) + (1 - alpha) * bg.astype(np.float32)).astype(
+            img.dtype
+        )
+
+    def apply_to_mask(self, mask: np.ndarray, **params) -> np.ndarray:
+        return mask
+
+    def apply_to_masks(self, masks, **params):
+        return masks
+
+    def get_transform_init_args_names(self) -> tuple[str, ...]:
+        return ("bg_paths",)
+
+
+def load_bg_bank(bg_bank: str | Path) -> list[Path]:
+    """Collect background images from a directory tree.
+
+    Raises:
+        FileNotFoundError: If the directory does not exist.
+        ValueError: If it contains no images.
+    """
+    root = Path(bg_bank)
+    if not root.exists():
+        raise FileNotFoundError(
+            f"Background bank not found: {root}. Build one with counterfactual/build.py."
+        )
+    exts = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
+    paths = sorted(p for p in root.rglob("*") if p.suffix in exts and p.is_file())
+    if not paths:
+        raise ValueError(f"Background bank {root} contains no images")
+    return paths
+
+
 def get_transforms(
     split: str,
     img_size: int = DEFAULT_IMG_SIZE,
@@ -189,16 +274,17 @@ def get_transforms(
             raise ValueError("copypaste is a training-time augmentation only")
         if bg_bank is None:
             raise ValueError("copypaste=True requires bg_bank")
-        raise NotImplementedError(
-            "copypaste lands in Phase 3 and needs leaf masks from Phase 2. "
-            "Do not enable it before masks/leaf_masks.py has been run."
-        )
 
     normalize = [A.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD), ToTensorV2()]
 
     if split == "train":
+        pre: list = []
+        if copypaste:
+            # Before geometry, so the composite is cropped/flipped as one image.
+            pre.append(CopyPasteBackground(load_bg_bank(bg_bank), p=copypaste_p))
         return A.Compose(
             [
+                *pre,
                 A.RandomResizedCrop(
                     size=(img_size, img_size), scale=(0.7, 1.0), ratio=(0.85, 1.18)
                 ),

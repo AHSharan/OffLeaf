@@ -1,8 +1,14 @@
 """The single training loop. Regime is selected by config.
 
-Phase 1 implements ``baseline`` only. ``cam_penalty``, ``copypaste`` and
-``bgremoval`` are Phase 3 and depend on masks from Phase 2; they raise rather
-than silently training something that is not what the config asked for.
+Regimes:
+
+* ``baseline``    - cross-entropy only. The reference point.
+* ``cam_penalty`` - CE plus ``offleaf_loss``: a GAIN-style penalty on Grad-CAM
+  mass falling outside the mask. This is the intervention the project is about.
+* ``copypaste``   - augmentation only; backgrounds are swapped during training
+  so background pixels carry no consistent class signal.
+* ``bgremoval``   - train on PlantVillage ``segmented/`` (background already
+  removed). At eval the SAM leaf mask is applied to test images.
 
 Every run writes ``runs/<exp_id>/<seed>/`` containing ``config.yaml``,
 ``metrics.json``, ``checkpoint.pt`` and ``log.csv``.
@@ -10,7 +16,7 @@ Every run writes ``runs/<exp_id>/<seed>/`` containing ``config.yaml``,
 Usage::
 
     python train/train.py --config configs/E0_resnet50_seed0.yaml
-    python train/train.py --config configs/E0_resnet50_seed0.yaml --epochs 2   # smoke test
+    python train/train.py --config configs/E2_lam1.0_seed0.yaml --epochs 2
 """
 
 from __future__ import annotations
@@ -23,7 +29,7 @@ from typing import Any
 
 import torch
 import torch.nn.functional as F
-from torch import nn
+from torch import Tensor, nn
 from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -40,10 +46,72 @@ from common import (  # noqa: E402
 )
 from data.dataset import LeafDataset, get_transforms  # noqa: E402
 from data.splits import load_split  # noqa: E402
-from models.build import build_model  # noqa: E402
+from models.build import build_model, normalized_cam  # noqa: E402
 
-IMPLEMENTED_REGIMES = {"baseline"}
 KNOWN_REGIMES = {"baseline", "cam_penalty", "copypaste", "bgremoval"}
+
+
+def offleaf_loss(cam: Tensor, mask: Tensor) -> Tensor:
+    """The OffLeaf penalty: Grad-CAM mass landing outside the mask.
+
+    Args:
+        cam: ``B x H x W`` attribution map, min-max normalised to ``[0, 1]``.
+        mask: ``B x H x W`` binary mask of the region attribution *should* be on
+            (leaf or lesion, per ``config.mask_type``).
+
+    Returns:
+        Scalar penalty. Zero when all attribution falls inside the mask.
+    """
+    return (cam * (1.0 - mask)).mean()
+
+
+def select_mask(cfg: dict[str, Any], leaf: Tensor, lesion: Tensor) -> Tensor:
+    """Pick the supervision mask for the CAM penalty.
+
+    Raises:
+        ValueError: On an unknown ``mask_type``, or an all-zero batch of masks,
+            which means the mask directory is wrong or the masks were never
+            generated. Training through that would silently penalise everything.
+    """
+    mask_type = cfg.get("mask_type", "leaf")
+    if mask_type == "leaf":
+        mask = leaf
+    elif mask_type == "lesion":
+        mask = lesion
+    else:
+        raise ValueError(f"Unknown mask_type {mask_type!r}; expected 'leaf' or 'lesion'")
+
+    if float(mask.sum()) == 0.0:
+        raise ValueError(
+            f"Every {mask_type} mask in this batch is empty. Check the configured "
+            f"{mask_type}_mask_dir - the masks are probably missing on disk. "
+            "Training on empty masks would penalise attribution everywhere."
+        )
+    return mask
+
+
+def resolve_paths(paths: list[Path], cfg: dict[str, Any]) -> list[Path]:
+    """Apply ``image_variant`` so ``bgremoval`` trains on ``segmented/``.
+
+    Splits are generated once against ``color/``; this rewrites that one path
+    component rather than maintaining a parallel set of split files, so both
+    regimes provably see the same images in the same split.
+
+    Raises:
+        FileNotFoundError: If the rewritten paths do not exist.
+    """
+    variant = cfg.get("image_variant", "color")
+    if variant == "color":
+        return paths
+
+    out = [Path(*[variant if part == "color" else part for part in p.parts]) for p in paths]
+    missing = [p for p in out[:20] if not p.exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"image_variant={variant!r} but {len(missing)} of the first 20 paths do not exist, "
+            f"e.g. {missing[0]}. Is data/raw/plantvillage/{variant}/ present?"
+        )
+    return out
 
 
 def build_loaders(cfg: dict[str, Any], repo: Path) -> tuple[DataLoader, DataLoader, int]:
@@ -54,35 +122,54 @@ def build_loaders(cfg: dict[str, Any], repo: Path) -> tuple[DataLoader, DataLoad
 
     train_paths, train_labels = load_split(split_dir / f"{name}_seed{seed}_train.csv")
     val_paths, val_labels = load_split(split_dir / f"{name}_seed{seed}_val.csv")
+
+    keep = cfg.get("keep_classes")
+    if keep:
+        keep = set(keep)
+        pairs = [(p, y) for p, y in zip(train_paths, train_labels) if p.parent.name in keep]
+        train_paths, train_labels = [p for p, _ in pairs], [y for _, y in pairs]
+        pairs = [(p, y) for p, y in zip(val_paths, val_labels) if p.parent.name in keep]
+        val_paths, val_labels = [p for p, _ in pairs], [y for _, y in pairs]
+        # Re-index labels so the head size matches the filtered class count.
+        remap = {old: i for i, old in enumerate(sorted(set(train_labels)))}
+        train_labels = [remap[y] for y in train_labels]
+        val_labels = [remap[y] for y in val_labels]
+
+    train_paths = resolve_paths(train_paths, cfg)
+    val_paths = resolve_paths(val_paths, cfg)
     num_classes = len(set(train_labels))
 
     img_size = int(cfg.get("img_size", 224))
     leaf_dir = cfg.get("leaf_mask_dir")
     lesion_dir = cfg.get("lesion_mask_dir")
+    regime = cfg.get("regime", "baseline")
+
+    train_tf = get_transforms(
+        "train",
+        img_size=img_size,
+        copypaste=regime == "copypaste",
+        copypaste_p=float(cfg.get("copypaste_p", 0.5)),
+        bg_bank=(repo / cfg["bg_bank"]) if cfg.get("bg_bank") else None,
+    )
+    val_tf = get_transforms("val", img_size=img_size)
 
     train_ds = LeafDataset(
         train_paths,
         train_labels,
         leaf_mask_dir=repo / leaf_dir if leaf_dir else None,
         lesion_mask_dir=repo / lesion_dir if lesion_dir else None,
-        transform=get_transforms("train", img_size=img_size),
+        transform=train_tf,
     )
     val_ds = LeafDataset(
         val_paths,
         val_labels,
         leaf_mask_dir=repo / leaf_dir if leaf_dir else None,
         lesion_mask_dir=repo / lesion_dir if lesion_dir else None,
-        transform=get_transforms("val", img_size=img_size),
+        transform=val_tf,
     )
 
     batch_size = int(cfg.get("batch_size", 32))
     workers = int(cfg.get("num_workers", 2))
-    # Validation gets its own worker count, defaulting to 0. On Windows workers
-    # are spawned, not forked, so each re-imports torch and costs ~1 GB of
-    # commit. With persistent train workers alive during validation the peak is
-    # doubled, which is enough to exhaust commit on a 16 GB machine and kill the
-    # run with "bad allocation" or a bare SystemError during a worker import.
-    # Validation is infrequent and short, so 0 costs little.
     val_workers = int(cfg.get("val_num_workers", 0))
     persistent = bool(cfg.get("persistent_workers", False))
     g = torch.Generator()
@@ -127,16 +214,56 @@ def evaluate(model: nn.Module, loader: DataLoader, device: torch.device) -> tupl
     return loss_sum / max(total, 1), correct / max(total, 1)
 
 
+def compute_penalty(
+    model: nn.Module,
+    logits: Tensor,
+    feat: Tensor,
+    labels: Tensor,
+    mask: Tensor,
+    scaler: torch.amp.GradScaler,
+    use_amp: bool,
+) -> tuple[Tensor, Tensor]:
+    """GAIN-style CAM penalty. Returns ``(penalty, cam)``.
+
+    Follows the spec exactly: differentiate the true-class score w.r.t. the
+    layer-3 features with ``create_graph=True``, form Grad-CAM, min-max
+    normalise per image, upsample to mask resolution, and penalise the mass
+    outside the mask.
+
+    AMP note: the score is scaled before ``autograd.grad`` and the gradient
+    unscaled afterwards, per the documented pattern for double backward under
+    GradScaler. Strictly the min-max normalisation already makes the CAM
+    invariant to a positive rescale, but leaving the gradient scaled by ~2**16
+    risks fp16 overflow inside the CAM sum, so it is undone explicitly.
+    """
+    s = logits.gather(1, labels.unsqueeze(1)).squeeze(1)
+    target = scaler.scale(s.sum()) if use_amp else s.sum()
+
+    grad = torch.autograd.grad(target, feat, create_graph=True)[0]
+    if use_amp:
+        grad = grad / scaler.get_scale()
+
+    cam = normalized_cam(feat.float(), grad.float(), out_hw=mask.shape[-2:])
+    penalty = offleaf_loss(cam, mask)
+
+    # Never train through a non-finite penalty. CE would keep going, validation
+    # accuracy would look normal, and the intervention would quietly be absent -
+    # which is indistinguishable from a null result when the numbers are read
+    # months later.
+    if not torch.isfinite(penalty):
+        raise FloatingPointError(
+            "offleaf_loss is not finite. This is the fp16 double-backward overflow: "
+            "run with amp: false (the default for cam_penalty), or set penalty_amp: true "
+            "only if you have verified the penalty stays finite."
+        )
+    return penalty, cam
+
+
 def train(cfg: dict[str, Any], repo: Path) -> dict[str, Any]:
     """Run one training job and return its metrics."""
     regime = cfg.get("regime", "baseline")
     if regime not in KNOWN_REGIMES:
         raise ValueError(f"Unknown regime {regime!r}; expected one of {sorted(KNOWN_REGIMES)}")
-    if regime not in IMPLEMENTED_REGIMES:
-        raise NotImplementedError(
-            f"regime {regime!r} lands in Phase 3 and needs masks from Phase 2. "
-            f"Implemented so far: {sorted(IMPLEMENTED_REGIMES)}. See CLAUDE.md section 7."
-        )
 
     seed = int(cfg["seed"])
     exp_id = cfg["exp_id"]
@@ -172,16 +299,46 @@ def train(cfg: dict[str, Any], repo: Path) -> dict[str, Any]:
     epochs = int(cfg.get("epochs", 10))
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     use_amp = bool(cfg.get("amp", True)) and device.type == "cuda"
-    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
+    lam = float(cfg.get("lam", 0.0))
+    use_penalty_regime = cfg.get("regime") == "cam_penalty" and lam != 0.0
+
+    # AMP and the CAM penalty do not mix. The penalty needs a double backward
+    # (autograd.grad with create_graph=True) through the layer-3 features. Under
+    # fp16 with GradScaler that overflows: measured on this repo, the penalty was
+    # NaN on the first step and penalty_grad_norm was NaN on every step, while
+    # the identical run in fp32 gave penalty ~0.15 and grad norms of 6.5-11.6.
+    # A silently-NaN penalty is the worst failure mode available here - CE keeps
+    # training, val accuracy looks fine, and the intervention does nothing.
+    if use_penalty_regime and use_amp and not cfg.get("penalty_amp", False):
+        print(
+            "  NOTE: disabling AMP for this cam_penalty run (fp16 double backward "
+            "produces NaN). Set penalty_amp: true to override. Lower batch_size if "
+            "you hit CUDA OOM - fp32 plus create_graph roughly doubles activation memory.",
+            flush=True,
+        )
+        use_amp = False
+        cfg["amp"] = False
+
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
+    shuffle_masks = bool(cfg.get("shuffle_masks", False))
     log_every = int(cfg.get("log_every", 50))
     limit_batches = cfg.get("limit_batches")
+    use_penalty = regime == "cam_penalty"
 
     print(
         f"[{exp_id} seed={seed}] regime={regime} model={cfg.get('model', 'resnet50')} "
-        f"classes={num_classes} device={device} amp={use_amp}"
+        f"classes={num_classes} device={device} amp={use_amp}",
+        flush=True,
     )
-    print(f"  train batches={len(train_loader)}  val batches={len(val_loader)}")
+    if use_penalty:
+        print(
+            f"  penalty: mask_type={cfg.get('mask_type', 'leaf')} "
+            f"mask_source={cfg.get('mask_source', 'n/a')} lam={lam} "
+            f"shuffle_masks={shuffle_masks}",
+            flush=True,
+        )
+    print(f"  train batches={len(train_loader)}  val batches={len(val_loader)}", flush=True)
 
     best_acc, best_epoch = -1.0, -1
     history: list[dict[str, Any]] = []
@@ -189,9 +346,10 @@ def train(cfg: dict[str, Any], repo: Path) -> dict[str, Any]:
 
     for epoch in range(epochs):
         model.train()
-        running_ce, seen, correct = 0.0, 0, 0
+        running_ce, running_pen, seen, correct = 0.0, 0.0, 0, 0
+        last_grad_norm = 0.0
 
-        for step, (images, labels, _leaf, _lesion) in enumerate(train_loader):
+        for step, (images, labels, leaf, lesion) in enumerate(train_loader):
             if limit_batches is not None and step >= int(limit_batches):
                 break
             images = images.to(device, non_blocking=True)
@@ -199,29 +357,58 @@ def train(cfg: dict[str, Any], repo: Path) -> dict[str, Any]:
 
             optimizer.zero_grad(set_to_none=True)
             with torch.autocast("cuda", enabled=use_amp):
-                logits, _feat3 = model(images)
+                logits, feat = model(images)
                 ce = F.cross_entropy(logits, labels)
-                loss = ce  # baseline: no penalty term
+
+            penalty_val = 0.0
+            if use_penalty and lam != 0.0:
+                mask = select_mask(cfg, leaf, lesion).to(device, non_blocking=True)
+                if shuffle_masks:
+                    # Control: same mask statistics, wrong image. If this scores
+                    # like the real thing, the penalty is not using alignment.
+                    mask = torch.roll(mask, shifts=1, dims=0)
+                penalty, _cam = compute_penalty(
+                    model, logits, feat, labels, mask, scaler, use_amp
+                )
+                loss = ce + lam * penalty
+                penalty_val = float(penalty.detach())
+
+                if step % log_every == 0:
+                    g = torch.autograd.grad(
+                        lam * penalty,
+                        [p for p in model.parameters() if p.requires_grad],
+                        retain_graph=True,
+                        allow_unused=True,
+                    )
+                    last_grad_norm = float(
+                        torch.sqrt(sum((x.float() ** 2).sum() for x in g if x is not None))
+                    )
+            else:
+                loss = ce
 
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
 
             running_ce += ce.item() * labels.size(0)
+            running_pen += penalty_val * labels.size(0)
             correct += (logits.argmax(1) == labels).sum().item()
             seen += labels.size(0)
 
             if step % log_every == 0:
-                # flush: these runs are long and usually backgrounded, where
-                # Python would otherwise buffer progress into invisibility.
+                extra = (
+                    f" pen={penalty_val:.4f} pgn={last_grad_norm:.4f}" if use_penalty else ""
+                )
                 print(
-                    f"  e{epoch} s{step}/{len(train_loader)} "
-                    f"ce={ce.item():.4f} acc={correct / max(seen, 1):.4f}",
+                    f"  e{epoch} s{step}/{len(train_loader)} ce={ce.item():.4f} "
+                    f"acc={correct / max(seen, 1):.4f}{extra}",
                     flush=True,
                 )
 
         scheduler.step()
-        train_loss, train_acc = running_ce / max(seen, 1), correct / max(seen, 1)
+        train_loss = running_ce / max(seen, 1)
+        train_acc = correct / max(seen, 1)
+        train_pen = running_pen / max(seen, 1)
         val_loss, val_acc = evaluate(model, val_loader, device)
 
         row = {
@@ -231,15 +418,14 @@ def train(cfg: dict[str, Any], repo: Path) -> dict[str, Any]:
             "val_loss": round(val_loss, 6),
             "val_acc": round(val_acc, 6),
             "lr": optimizer.param_groups[0]["lr"],
-            # Present but zero for baseline, so every regime shares one schema.
-            "penalty": 0.0,
-            "penalty_grad_norm": 0.0,
+            "penalty": round(train_pen, 6),
+            "penalty_grad_norm": round(last_grad_norm, 6),
         }
         logger.log(row)
         history.append(row)
         print(
             f"  epoch {epoch}: train_ce={train_loss:.4f} train_acc={train_acc:.4f} "
-            f"val_loss={val_loss:.4f} val_acc={val_acc:.4f}",
+            f"val_loss={val_loss:.4f} val_acc={val_acc:.4f} penalty={train_pen:.4f}",
             flush=True,
         )
 
@@ -264,16 +450,21 @@ def train(cfg: dict[str, Any], repo: Path) -> dict[str, Any]:
         "seed": seed,
         "regime": regime,
         "model": cfg.get("model", "resnet50"),
+        "lam": lam,
+        "mask_type": cfg.get("mask_type") if use_penalty else None,
+        "mask_source": cfg.get("mask_source") if use_penalty else None,
+        "shuffle_masks": shuffle_masks if use_penalty else None,
         "num_classes": num_classes,
         "epochs": epochs,
         "best_val_acc": best_acc,
         "best_epoch": best_epoch,
         "final_val_acc": history[-1]["val_acc"] if history else None,
+        "final_penalty": history[-1]["penalty"] if history else None,
         "train_seconds": round(time.time() - t0, 1),
         "history": history,
     }
     write_metrics(metrics, out / "metrics.json")
-    print(f"  best val_acc={best_acc:.4f} @ epoch {best_epoch} -> {out}")
+    print(f"  best val_acc={best_acc:.4f} @ epoch {best_epoch} -> {out}", flush=True)
     return metrics
 
 
@@ -282,6 +473,7 @@ def main() -> None:
     ap.add_argument("--config", required=True)
     ap.add_argument("--seed", type=int, default=None, help="override config.seed")
     ap.add_argument("--epochs", type=int, default=None, help="override config.epochs")
+    ap.add_argument("--lam", type=float, default=None, help="override config.lam")
     ap.add_argument(
         "--limit_batches", type=int, default=None, help="stop each epoch early (smoke tests)"
     )
@@ -294,14 +486,15 @@ def main() -> None:
     cfg = load_config(args.config)
 
     # Overrides are recorded into the saved config so a run stays reproducible.
-    if args.seed is not None:
-        cfg["seed"] = args.seed
-    if args.epochs is not None:
-        cfg["epochs"] = args.epochs
-    if args.limit_batches is not None:
-        cfg["limit_batches"] = args.limit_batches
-    if args.num_workers is not None:
-        cfg["num_workers"] = args.num_workers
+    for key, val in (
+        ("seed", args.seed),
+        ("epochs", args.epochs),
+        ("lam", args.lam),
+        ("limit_batches", args.limit_batches),
+        ("num_workers", args.num_workers),
+    ):
+        if val is not None:
+            cfg[key] = val
 
     train(cfg, repo)
 
