@@ -57,27 +57,23 @@ def _read_binary(path: Path, shape_hw: tuple[int, int] | None = None) -> np.ndar
     return (m > 127).astype(np.uint8)
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description="Promote verified masks into lesion_human/.")
-    ap.add_argument("--config", required=True)
-    ap.add_argument(
-        "--fixed_dir",
-        default=None,
-        help="directory of corrected masks for 'fix' rows (e.g. a CVAT export)",
-    )
-    args = ap.parse_args()
+def promote(
+    verify_dir: Path,
+    pseudo_root: Path,
+    human_root: Path,
+    fixed_dir: Path,
+    dataset: str = "plantvillage",
+) -> dict:
+    """Act on the decisions in ``verify_dir/verify.csv``; return the summary.
 
-    repo = Path(__file__).resolve().parents[1]
-    cfg = load_config(args.config)
+    Separated from :func:`main` so ``tests/test_pseudo_import_iou.py`` can drive
+    it against a temporary tree without constructing configs or touching the
+    real dataset.
 
-    dataset = cfg.get("dataset_name", "plantvillage")
-    pseudo_root = repo / cfg.get("pseudo_root", "data/masks/lesion_pseudo")
-    human_root = repo / cfg.get("human_root", "data/masks/lesion_human")
-    verify_dir = repo / cfg.get("out_dir", "data/masks/verify")
-    fixed_dir = Path(args.fixed_dir) if args.fixed_dir else repo / cfg.get(
-        "fixed_dir", "data/masks/verify/fixed"
-    )
-
+    Raises:
+        FileNotFoundError: If ``verify.csv`` or an accepted pseudo mask is absent.
+        ValueError: If the decisions are unfilled or contain unknown values.
+    """
     vcsv = verify_dir / "verify.csv"
     if not vcsv.exists():
         raise FileNotFoundError(
@@ -137,7 +133,7 @@ def main() -> None:
             fixed_ious.append(binary_iou(pseudo, corrected))
 
     summary = {
-        "verify_csv": str(vcsv.relative_to(repo).as_posix()),
+        "verify_csv": vcsv.as_posix(),
         "rows": int(len(df)),
         "decisions": dict(counts),
         "blank_decisions": blank,
@@ -151,6 +147,33 @@ def main() -> None:
         "pseudo_vs_human_iou_min": round(float(np.min(fixed_ious)), 4) if fixed_ious else None,
         "accept_rate": round(counts.get("accept", 0) / max(len(df) - blank, 1), 4),
     }
+    return summary
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Promote verified masks into lesion_human/.")
+    ap.add_argument("--config", required=True)
+    ap.add_argument(
+        "--fixed_dir",
+        default=None,
+        help="directory of corrected masks for 'fix' rows (e.g. a CVAT export)",
+    )
+    args = ap.parse_args()
+
+    repo = Path(__file__).resolve().parents[1]
+    cfg = load_config(args.config)
+
+    dataset = cfg.get("dataset_name", "plantvillage")
+    pseudo_root = repo / cfg.get("pseudo_root", "data/masks/lesion_pseudo")
+    human_root = repo / cfg.get("human_root", "data/masks/lesion_human")
+    verify_dir = repo / cfg.get("out_dir", "data/masks/verify")
+    fixed_dir = (
+        Path(args.fixed_dir)
+        if args.fixed_dir
+        else repo / cfg.get("fixed_dir", "data/masks/verify/fixed")
+    )
+
+    summary = promote(verify_dir, pseudo_root, human_root, fixed_dir, dataset)
 
     print(json.dumps(summary, indent=2))
 
@@ -160,9 +183,10 @@ def main() -> None:
     qpath.write_text(json.dumps(existing, indent=2), encoding="utf-8")
     print(f"\nwrote {qpath}")
 
-    if missing_fixed:
+    if summary["missing_corrected_masks"]:
         print(
-            f"\nWARNING: {len(missing_fixed)} row(s) marked 'fix' had no corrected mask in "
+            f"\nWARNING: {summary['missing_corrected_masks']} row(s) marked 'fix' had no "
+            f"corrected mask in "
             f"{fixed_dir}. Export them from CVAT (masks/cvat_import.py) and re-run.",
             flush=True,
         )
