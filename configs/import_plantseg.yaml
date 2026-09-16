@@ -1,0 +1,7 @@
+# Import PlantSeg human-drawn lesion masks into data/masks/lesion_human/.
+# These are HUMAN masks, so they are valid for reported metrics.
+#   python masks/import_external.py --config configs/import_plantseg.yaml
+
+plantseg_root: data/raw/plantseg
+out_root: data/masks/lesion_human
+crop: null

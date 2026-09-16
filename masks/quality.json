@@ -1,0 +1,24 @@
+{
+  "import_external": {
+    "source": "plantseg",
+    "crop_filter": "tomato",
+    "rows_considered": 901,
+    "masks_written": 901,
+    "already_present_skipped": 0,
+    "empty_masks": 0,
+    "missing_images": 0,
+    "missing_annotations": 0,
+    "missing_image_examples": [],
+    "missing_annotation_examples": [],
+    "mean_lesion_ratio": 0.1733,
+    "per_disease": {
+      "tomato early blight": 187,
+      "tomato late blight": 163,
+      "tomato leaf mold": 156,
+      "tomato septoria leaf spot": 130,
+      "tomato bacterial leaf spot": 109,
+      "tomato yellow leaf curl virus": 93,
+      "tomato mosaic virus": 63
+    }
+  }
+}

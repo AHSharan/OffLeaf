@@ -1,0 +1,28 @@
+# S0 - lesion segmenter trained on PlantSeg human masks (Plan A).
+#   python masks/train_segmenter.py --config configs/S0_segmenter.yaml
+#
+# arch: spec allows SegFormer-B0 or U-Net via segmentation_models_pytorch with
+# an ImageNet encoder. U-Net is the default here: lighter at 512px on a 6 GB
+# card, and smp installs cleanly on Windows. Set arch: segformer_b0 to switch.
+
+exp_id: S0_segmenter
+seed: 0
+
+arch: unet
+encoder: resnet34
+
+crop: tomato          # null or --all_crops to train on every crop
+plantseg_root: data/raw/plantseg
+mask_root: data/masks/lesion_human
+out_weights: weights/lesion_seg.pt
+
+img_size: 512
+batch_size: 4         # 512px on 6 GB VRAM; raise on a bigger GPU
+epochs: 30
+lr: 3.0e-4
+weight_decay: 1.0e-4
+optimizer: adamw
+amp: true
+
+num_workers: 0        # see CLAUDE.md section 2 on Windows commit charge
+deterministic: true
