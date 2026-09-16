@@ -279,6 +279,30 @@ single-channel uint8 with exactly one non-zero class index (97 = tomato
 bacterial leaf spot, 1 = apple black rot), consistent per disease, so
 binarising on `> 0` is correct.
 
+### S0 lesion segmenter result (2026-09-16)
+
+`python masks/train_segmenter.py --config configs/S0_segmenter.yaml`
+
+U-Net (smp, ImageNet ResNet-34), PlantSeg tomato, 512px, Dice+BCE, AMP, 30
+epochs, 623 train / 97 val, 18.9 minutes on the 3060.
+
+| metric | value |
+|---|---|
+| best val IoU | **0.5654** (epoch 27) |
+| best val Dice | 0.6871 |
+| converged | yes — val IoU flat across epochs 27–29 |
+
+**How to read this number.** It is measured on held-out PlantSeg *field* images.
+Pseudo-label quality on PlantVillage *lab* images is a different and unmeasured
+quantity, because the domains differ. An IoU near 0.57 means the segmenter finds
+roughly the right region but is imprecise at boundaries — good enough to seed
+training masks, not good enough to be trusted as ground truth. That is the whole
+justification for `verify_sheet.py`.
+
+For context when judging it, run `masks/agreement.py` on two annotators: if
+people agree with each other at ~0.6 IoU on lesion boundaries, 0.57 is close to
+the practical ceiling rather than a weak result.
+
 ### Leaf masks: SAM's top-scoring candidate is often the wrong one
 
 The first PlantDoc pass produced **989/2581 (38.3%) HSV fallbacks whose median
