@@ -45,17 +45,23 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".JPG", ".JPEG", ".PNG"}
 HSV_GREEN_LOW = np.array([20, 30, 25], dtype=np.uint8)
 HSV_GREEN_HIGH = np.array([95, 255, 255], dtype=np.uint8)
 
-MaskMethod = Literal["sam", "hsv_fallback", "hsv_no_sam"]
+MaskMethod = Literal["sam", "hsv_fallback", "unreliable"]
 
 
 def hsv_leaf_mask(image_rgb: np.ndarray) -> np.ndarray:
-    """Largest green connected component, as a ``{0,1}`` uint8 mask.
+    """Green connected component containing the image centre, as ``{0,1}`` uint8.
 
-    Used when SAM is unavailable or unconfident. Returns an all-ones mask if no
-    green region is found, because a wrong-but-total mask is less harmful than
-    an empty one: an empty leaf mask would make the CAM penalty treat the whole
-    image as background and push the model away from everything.
+    Used when SAM is unconfident. **Prefers the centre component, not the
+    largest.** On a field photograph the largest green blob is usually the
+    surrounding vegetation, so "largest" selects the whole scene; the subject
+    leaf is the one under the centre of the frame. Falls back to largest only
+    when the centre is not green.
+
+    Returns zeros when no green region is found. Callers must treat an empty or
+    near-total result as unreliable rather than using it - see
+    :func:`assess_reliability`.
     """
+    h, w = image_rgb.shape[:2]
     hsv = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2HSV)
     raw = cv2.inRange(hsv, HSV_GREEN_LOW, HSV_GREEN_HIGH)
 
@@ -65,16 +71,35 @@ def hsv_leaf_mask(image_rgb: np.ndarray) -> np.ndarray:
 
     n, labels, stats, _ = cv2.connectedComponentsWithStats((raw > 0).astype(np.uint8), 8)
     if n <= 1:
-        return np.ones(image_rgb.shape[:2], dtype=np.uint8)
+        return np.zeros((h, w), dtype=np.uint8)
 
-    largest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-    mask = (labels == largest).astype(np.uint8)
+    centre_label = int(labels[h // 2, w // 2])
+    if centre_label > 0:
+        chosen = centre_label
+    else:
+        chosen = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+
+    mask = (labels == chosen).astype(np.uint8)
 
     # Fill interior holes so lesions inside the leaf stay part of the leaf.
     filled = mask.copy()
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cv2.drawContours(filled, contours, -1, color=1, thickness=cv2.FILLED)
     return filled
+
+
+def assess_reliability(mask: np.ndarray, lo: float = 0.02, hi: float = 0.85) -> bool:
+    """Whether a finished leaf mask is usable.
+
+    A mask covering more than ``hi`` of the frame is not isolating a leaf, it is
+    selecting the scene. Measured on PlantDoc, HSV-fallback masks had a median
+    coverage of 0.82 and an upper quartile of 0.95 - i.e. most of them were
+    useless, while looking like successes in the output directory. Downstream
+    consumers (counterfactual cutouts, bgremoval at eval) must skip these rather
+    than build on them.
+    """
+    cov = float(mask.mean())
+    return lo <= cov <= hi
 
 
 def _is_degenerate(mask: np.ndarray, lo: float = 0.02, hi: float = 0.98) -> bool:
@@ -134,10 +159,13 @@ class LeafMasker:
         sam.eval()
         self.predictor = SamPredictor(sam)
 
-    def mask_one(self, image_rgb: np.ndarray) -> tuple[np.ndarray, float, MaskMethod]:
-        """Return ``(mask, score, method)`` for one RGB image.
+    def mask_one(self, image_rgb: np.ndarray) -> tuple[np.ndarray, float, MaskMethod, bool]:
+        """Return ``(mask, score, method, reliable)`` for one RGB image.
 
-        The mask is ``{0,1}`` uint8 at the image's own resolution.
+        The mask is ``{0,1}`` uint8 at the image's own resolution. ``reliable``
+        is False when neither SAM nor the fallback produced a plausible leaf;
+        the mask is still written so the run stays resumable, but downstream
+        code must skip it.
         """
         h, w = image_rgb.shape[:2]
         try:
@@ -150,13 +178,28 @@ class LeafMasker:
         except torch.cuda.OutOfMemoryError:
             torch.cuda.empty_cache()
             raise
-        best = int(np.argmax(scores))
-        mask = masks[best].astype(np.uint8)
+
+        # Prefer the best-scoring candidate, but if it is degenerate try the
+        # other two before giving up on SAM entirely - the 3 candidates are
+        # coarse/medium/fine, and the coarse one is often the whole scene.
+        order = np.argsort(-scores)
+        for idx in order:
+            cand = masks[int(idx)].astype(np.uint8)
+            if assess_reliability(cand) and float(scores[int(idx)]) >= self.score_threshold:
+                return cand, float(scores[int(idx)]), "sam", True
+
+        best = int(order[0])
+        sam_mask = masks[best].astype(np.uint8)
         score = float(scores[best])
 
-        if score < self.score_threshold or _is_degenerate(mask):
-            return hsv_leaf_mask(image_rgb), score, "hsv_fallback"
-        return mask, score, "sam"
+        fallback = hsv_leaf_mask(image_rgb)
+        if assess_reliability(fallback):
+            return fallback, score, "hsv_fallback", True
+
+        # Neither worked. Keep SAM's mask if it is at least non-degenerate,
+        # otherwise the fallback, and flag the image as unusable.
+        chosen = sam_mask if not _is_degenerate(sam_mask) else fallback
+        return chosen, score, "unreliable", False
 
 
 def iter_images(root: Path) -> list[Path]:
@@ -211,7 +254,7 @@ def run(cfg: dict, repo: Path, mobile_sam_override: bool | None = None) -> dict[
     with open(log_path, "a", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
         if new_log:
-            writer.writerow(["relative_path", "method", "sam_score", "coverage"])
+            writer.writerow(["relative_path", "method", "sam_score", "coverage", "reliable"])
 
         for i, (src, out) in enumerate(todo):
             bgr = cv2.imread(str(src), cv2.IMREAD_COLOR)
@@ -219,7 +262,7 @@ def run(cfg: dict, repo: Path, mobile_sam_override: bool | None = None) -> dict[
                 raise OSError(f"Could not read image: {src}")
             rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
-            mask, score, method = masker.mask_one(rgb)
+            mask, score, method, reliable = masker.mask_one(rgb)
             counts[method] = counts.get(method, 0) + 1
 
             out.parent.mkdir(parents=True, exist_ok=True)
@@ -227,27 +270,43 @@ def run(cfg: dict, repo: Path, mobile_sam_override: bool | None = None) -> dict[
 
             _, relative = split_raw_path(src)
             writer.writerow(
-                [relative.as_posix(), method, round(score, 4), round(float(mask.mean()), 4)]
+                [
+                    relative.as_posix(),
+                    method,
+                    round(score, 4),
+                    round(float(mask.mean()), 4),
+                    int(reliable),
+                ]
             )
 
             if i % 200 == 0:
                 rate = (i + 1) / max(time.time() - t0, 1e-6)
                 eta = (len(todo) - i - 1) / max(rate, 1e-6) / 60
                 fb = counts.get("hsv_fallback", 0) / max(i + 1, 1)
+                bad = counts.get("unreliable", 0) / max(i + 1, 1)
                 print(
                     f"  {i + 1}/{len(todo)}  {rate:.1f} img/s  eta {eta:.1f} min  "
-                    f"fallback {fb:.1%}",
+                    f"fallback {fb:.1%}  unreliable {bad:.1%}",
                     flush=True,
                 )
                 fh.flush()
 
     total = sum(counts.values())
+    bad = counts.get("unreliable", 0)
     print(
         f"done: {total} masks in {(time.time() - t0) / 60:.1f} min | "
         f"sam={counts.get('sam', 0)} hsv_fallback={counts.get('hsv_fallback', 0)} "
-        f"({counts.get('hsv_fallback', 0) / max(total, 1):.1%} fallback)",
+        f"unreliable={bad} "
+        f"({counts.get('hsv_fallback', 0) / max(total, 1):.1%} fallback, "
+        f"{bad / max(total, 1):.1%} unreliable)",
         flush=True,
     )
+    if bad:
+        print(
+            f"WARNING: {bad} image(s) have no usable leaf mask. They are written but flagged "
+            "reliable=0 in the log; downstream code must skip them rather than build on them.",
+            flush=True,
+        )
     print(f"log: {log_path}", flush=True)
     return counts
 
