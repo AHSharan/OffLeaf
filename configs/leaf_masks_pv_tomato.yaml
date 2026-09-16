@@ -1,0 +1,15 @@
+# Leaf masks for PlantVillage TOMATO only - unblocks pseudo-labelling and the
+# counterfactual lab cells without waiting for all 38 classes (~5.4 h).
+#   python masks/leaf_masks.py --config configs/leaf_masks_pv_tomato.yaml
+
+image_root: data/raw/plantvillage/color
+mask_root: data/masks/leaf
+checkpoint: weights/sam_vit_b_01ec64.pth
+model_type: vit_b
+score_threshold: 0.85
+mobile_sam: false
+seed: 0
+
+crop: tomato
+class_map: data/class_map.csv
+class_map_column: plantvillage_name

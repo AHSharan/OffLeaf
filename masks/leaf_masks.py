@@ -202,11 +202,30 @@ class LeafMasker:
         return chosen, score, "unreliable", False
 
 
-def iter_images(root: Path) -> list[Path]:
-    """All image files under ``root``, sorted for a deterministic order."""
+def iter_images(root: Path, classes: set[str] | None = None) -> list[Path]:
+    """Image files under ``root``, sorted for a deterministic (resumable) order.
+
+    ``classes`` restricts to those immediate parent folder names. Useful for
+    generating one crop's masks first when the full set is hours of work and a
+    downstream step only needs that crop.
+    """
     if not root.exists():
         raise FileNotFoundError(f"Image root not found: {root}")
-    return sorted(p for p in root.rglob("*") if p.suffix in IMAGE_EXTS and p.is_file())
+    out = [p for p in sorted(root.rglob("*")) if p.suffix in IMAGE_EXTS and p.is_file()]
+    if classes is not None:
+        out = [p for p in out if p.parent.name in classes]
+        if not out:
+            raise ValueError(f"No images under {root} matched classes={sorted(classes)}")
+    return out
+
+
+def classes_for_crop(class_map_path: Path, crop: str, column: str) -> set[str]:
+    """Dataset folder names for one crop, from ``class_map.csv``."""
+    import pandas as pd
+
+    df = pd.read_csv(class_map_path)
+    sel = df[(df.crop.str.lower() == crop.lower()) & df[column].notna()]
+    return set(sel[column].astype(str))
 
 
 def run(cfg: dict, repo: Path, mobile_sam_override: bool | None = None) -> dict[str, int]:
@@ -218,7 +237,16 @@ def run(cfg: dict, repo: Path, mobile_sam_override: bool | None = None) -> dict[
     limit = cfg.get("limit")
     mobile = mobile_sam_override if mobile_sam_override is not None else cfg.get("mobile_sam", False)
 
-    images = iter_images(image_root)
+    classes = None
+    if cfg.get("crop"):
+        classes = classes_for_crop(
+            repo / cfg.get("class_map", "data/class_map.csv"),
+            str(cfg["crop"]),
+            cfg.get("class_map_column", "plantvillage_name"),
+        )
+        print(f"crop filter {cfg['crop']!r}: {len(classes)} classes", flush=True)
+
+    images = iter_images(image_root, classes)
     if limit:
         images = images[: int(limit)]
     print(f"found {len(images)} images under {image_root}", flush=True)
