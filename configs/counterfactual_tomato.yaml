@@ -1,0 +1,23 @@
+# Counterfactual background-swap benchmark (tomato).
+#   python counterfactual/build.py --config configs/counterfactual_tomato.yaml
+#
+# Requires leaf masks for BOTH PlantVillage and PlantDoc first:
+#   python masks/leaf_masks.py --config configs/leaf_masks_plantvillage.yaml
+#   python masks/leaf_masks.py --config configs/leaf_masks_plantdoc.yaml
+
+seed: 0
+crop: tomato
+
+out_dir: data/counterfactual
+leaf_mask_root: data/masks/leaf
+lesion_mask_root: data/masks/lesion_human
+class_map: data/class_map.csv
+
+n_backgrounds: 40      # inpainted plates per bank
+n_textures: 12         # synthetic texture backgrounds
+feather_px: 4          # spec: 3-5 px alpha feather at the mask edge
+jitter: 0.15           # spec: random position/scale within +/-15%
+out_size: 256
+
+limit_per_source: 200  # leaves per source; remove for the full set
+sheet_n: 50            # composites in the QA contact sheet
