@@ -1,16 +1,16 @@
 canonical_class,crop,disease,plantvillage_name,plantdoc_name,tomato_village_name,field_pv_name,plantseg_name
-apple_scab,apple,scab,Apple___Apple_scab,Apple Scab Leaf,,,
-apple_black_rot,apple,black_rot,Apple___Black_rot,,,,
-apple_cedar_rust,apple,cedar_apple_rust,Apple___Cedar_apple_rust,Apple rust leaf,,,
+apple_scab,apple,scab,Apple___Apple_scab,Apple Scab Leaf,,,apple scab
+apple_black_rot,apple,black_rot,Apple___Black_rot,,,,apple black rot
+apple_cedar_rust,apple,cedar_apple_rust,Apple___Cedar_apple_rust,Apple rust leaf,,,apple rust
 apple_healthy,apple,healthy,Apple___healthy,Apple leaf,,,
 blueberry_healthy,blueberry,healthy,Blueberry___healthy,Blueberry leaf,,,
-cherry_powdery_mildew,cherry,powdery_mildew,Cherry_(including_sour)___Powdery_mildew,,,,
+cherry_powdery_mildew,cherry,powdery_mildew,Cherry_(including_sour)___Powdery_mildew,,,,cherry powdery mildew
 cherry_healthy,cherry,healthy,Cherry_(including_sour)___healthy,Cherry leaf,,,
-corn_gray_leaf_spot,corn,gray_leaf_spot,Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot,Corn Gray leaf spot,,,
-corn_common_rust,corn,common_rust,Corn_(maize)___Common_rust_,Corn rust leaf,,,
-corn_northern_leaf_blight,corn,northern_leaf_blight,Corn_(maize)___Northern_Leaf_Blight,Corn leaf blight,,,
+corn_gray_leaf_spot,corn,gray_leaf_spot,Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot,Corn Gray leaf spot,,,corn gray leaf spot
+corn_common_rust,corn,common_rust,Corn_(maize)___Common_rust_,Corn rust leaf,,,corn rust
+corn_northern_leaf_blight,corn,northern_leaf_blight,Corn_(maize)___Northern_Leaf_Blight,Corn leaf blight,,,corn northern leaf blight
 corn_healthy,corn,healthy,Corn_(maize)___healthy,,,,
-grape_black_rot,grape,black_rot,Grape___Black_rot,grape leaf black rot,,,
+grape_black_rot,grape,black_rot,Grape___Black_rot,grape leaf black rot,,,grape black rot
 grape_esca,grape,esca,Grape___Esca_(Black_Measles),,,,
 grape_leaf_blight,grape,leaf_blight,Grape___Leaf_blight_(Isariopsis_Leaf_Spot),,,,
 grape_healthy,grape,healthy,Grape___healthy,grape leaf,,,
@@ -19,21 +19,21 @@ peach_bacterial_spot,peach,bacterial_spot,Peach___Bacterial_spot,,,,
 peach_healthy,peach,healthy,Peach___healthy,Peach leaf,,,
 pepper_bell_bacterial_spot,pepper_bell,bacterial_spot,"Pepper,_bell___Bacterial_spot",Bell_pepper leaf spot,,,
 pepper_bell_healthy,pepper_bell,healthy,"Pepper,_bell___healthy",Bell_pepper leaf,,,
-potato_early_blight,potato,early_blight,Potato___Early_blight,Potato leaf early blight,,,
-potato_late_blight,potato,late_blight,Potato___Late_blight,Potato leaf late blight,,,
+potato_early_blight,potato,early_blight,Potato___Early_blight,Potato leaf early blight,,,potato early blight
+potato_late_blight,potato,late_blight,Potato___Late_blight,Potato leaf late blight,,,potato late blight
 potato_healthy,potato,healthy,Potato___healthy,,,,
 raspberry_healthy,raspberry,healthy,Raspberry___healthy,Raspberry leaf,,,
 soybean_healthy,soybean,healthy,Soybean___healthy,Soyabean leaf,,,
-squash_powdery_mildew,squash,powdery_mildew,Squash___Powdery_mildew,Squash Powdery mildew leaf,,,
-strawberry_leaf_scorch,strawberry,leaf_scorch,Strawberry___Leaf_scorch,,,,
+squash_powdery_mildew,squash,powdery_mildew,Squash___Powdery_mildew,Squash Powdery mildew leaf,,,squash powdery mildew
+strawberry_leaf_scorch,strawberry,leaf_scorch,Strawberry___Leaf_scorch,,,,strawberry leaf scorch
 strawberry_healthy,strawberry,healthy,Strawberry___healthy,Strawberry leaf,,,
-tomato_bacterial_spot,tomato,bacterial_spot,Tomato___Bacterial_spot,Tomato leaf bacterial spot,,,
-tomato_early_blight,tomato,early_blight,Tomato___Early_blight,Tomato Early blight leaf,,,
-tomato_late_blight,tomato,late_blight,Tomato___Late_blight,Tomato leaf late blight,,,
-tomato_leaf_mold,tomato,leaf_mold,Tomato___Leaf_Mold,Tomato mold leaf,,,
-tomato_septoria_leaf_spot,tomato,septoria_leaf_spot,Tomato___Septoria_leaf_spot,Tomato Septoria leaf spot,,,
+tomato_bacterial_spot,tomato,bacterial_spot,Tomato___Bacterial_spot,Tomato leaf bacterial spot,,,tomato bacterial leaf spot
+tomato_early_blight,tomato,early_blight,Tomato___Early_blight,Tomato Early blight leaf,,,tomato early blight
+tomato_late_blight,tomato,late_blight,Tomato___Late_blight,Tomato leaf late blight,,,tomato late blight
+tomato_leaf_mold,tomato,leaf_mold,Tomato___Leaf_Mold,Tomato mold leaf,,,tomato leaf mold
+tomato_septoria_leaf_spot,tomato,septoria_leaf_spot,Tomato___Septoria_leaf_spot,Tomato Septoria leaf spot,,,tomato septoria leaf spot
 tomato_spider_mites,tomato,spider_mites,Tomato___Spider_mites Two-spotted_spider_mite,Tomato two spotted spider mites leaf,,,
 tomato_target_spot,tomato,target_spot,Tomato___Target_Spot,,,,
-tomato_yellow_leaf_curl_virus,tomato,yellow_leaf_curl_virus,Tomato___Tomato_Yellow_Leaf_Curl_Virus,Tomato leaf yellow virus,,,
-tomato_mosaic_virus,tomato,mosaic_virus,Tomato___Tomato_mosaic_virus,Tomato leaf mosaic virus,,,
+tomato_yellow_leaf_curl_virus,tomato,yellow_leaf_curl_virus,Tomato___Tomato_Yellow_Leaf_Curl_Virus,Tomato leaf yellow virus,,,tomato yellow leaf curl virus
+tomato_mosaic_virus,tomato,mosaic_virus,Tomato___Tomato_mosaic_virus,Tomato leaf mosaic virus,,,tomato mosaic virus
 tomato_healthy,tomato,healthy,Tomato___healthy,Tomato leaf,,,
