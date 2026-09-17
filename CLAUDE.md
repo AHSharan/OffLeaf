@@ -229,8 +229,8 @@ This is enforced by `tests/test_metrics_refuse_pseudo.py`.
 |---|---|---|
 | 0 | Environment, datasets, SAM checkpoint, git | **done** |
 | 1 | layout, requirements, `data/`, `models/`, `train/` baseline, `configs/E0` | **done** |
-| 2 | `masks/` (leaf, import, segmenter, pseudo-label, verify), `counterfactual/` | code done; mask generation running |
-| 3 | `cam_penalty`, `copypaste`, `bgremoval` regimes; all section 10 tests | not started |
+| 2 | `masks/` (leaf, import, segmenter, pseudo-label, verify), `counterfactual/` | **done** (see 7b) |
+| 3 | `cam_penalty`, `copypaste`, `bgremoval` regimes; all section 10 tests | **done** — 25 tests pass |
 | 4 | `explain/`, `eval/` metrics, `noyan_test.py` | not started |
 | 5 | configs E1-E5, `run_all.sh`, `release/` | not started |
 
@@ -337,6 +337,74 @@ re-running skips existing PNGs before it even loads the model.
 
 **PlantDoc masks generated before commit `294da72` predate the fix and should be
 regenerated.**
+
+## 7b. RESUME HERE (state as of 2026-09-17)
+
+### Done and on disk
+
+- Leaf masks: PlantDoc 2,580/2,581; PlantVillage 32,068/54,305 — **all 18,160
+  tomato complete**. The remaining ~22k non-tomato are only needed for E1d.
+- Lesion masks: 11,458 human (PlantSeg) + **18,160 pseudo** (tomato, 31.8 min,
+  397 empty, 0 skipped).
+- S0 segmenter trained: val IoU 0.5654. `weights/lesion_seg.pt`.
+- Phases 0–3 complete, 25 tests passing, 19 commits pushed.
+
+### Next action: build the verification artifact
+
+`masks/verify_sheet.py` produces a static HTML sheet + `verify.csv`. The user
+asked instead for an **interactive published Artifact** (click accept/fix/reject,
+decisions stored in the `db` capability keyed by annotator via `user`, images
+embedded as data URIs so teammates need no clone, no GPU and no dataset).
+Not yet built — this is the next task.
+
+Two decisions the user made, which the sheet must honour:
+
+1. **Exclude `Target_Spot` and `Spider_mites`** from the 80-mask sample. Sample
+   across the 7 PlantSeg-covered disease classes only.
+2. **Two annotators with a 30-mask overlap.** Order the sheet so the 30 shared
+   masks come first, then each annotator's own set, so overlap happens
+   naturally. `masks/agreement.py` then computes inter-annotator IoU.
+
+### Finding: confidence does not detect out-of-distribution classes
+
+Mean foreground probability per class, from `pseudo_confidence.csv`:
+
+| class | mean prob | fg frac | empty | S0 trained on it |
+|---|---|---|---|---|
+| Tomato___Spider_mites | **0.929** | 0.277 | 0.2% | **no** |
+| Tomato___Tomato_mosaic_virus | 0.931 | 0.213 | 0.0% | yes |
+| Tomato___Target_Spot | **0.897** | 0.286 | 0.1% | **no** |
+| Tomato___Bacterial_spot | 0.862 | 0.190 | 0.6% | yes |
+| Tomato___healthy | 0.707 | 0.225 | **21.1%** | **no** |
+
+The two untrained disease classes sit at the **top** of the confidence range.
+Pseudo-mask trustworthiness therefore cannot be filtered by confidence, and any
+threshold-based quality gate would let them straight through. Exclude by class,
+not by score.
+
+### Open issue: healthy leaves have no lesion, but S0 paints one anyway
+
+`Tomato___healthy` is a third class PlantSeg never covers (it is a disease-only
+dataset). S0 predicts a non-empty lesion on **79%** of healthy leaves, averaging
+~22% of the leaf area.
+
+This is a real problem for E2, and the spec does not address it: `mask_type:
+lesion` on a healthy image supervises the CAM penalty against a mask that should
+be empty. Penalising attribution outside a fabricated lesion teaches the model to
+attend to an arbitrary region.
+
+Options, in preference order:
+
+1. For healthy images fall back to the **leaf mask** — for a healthy leaf
+   "attend to the leaf" is the correct supervision, and it is principled rather
+   than a workaround.
+2. Exclude healthy from the lesion-penalty arm.
+3. Use an empty mask — **do not**: `offleaf_loss` would then penalise all
+   attribution everywhere on those images.
+
+`train/train.py::select_mask` currently raises only when an *entire batch* of
+masks is empty; it does not handle per-image empties. **Unresolved — needs a
+human decision before E2 runs.**
 
 ## 8. Machine-specific setup quirks
 
