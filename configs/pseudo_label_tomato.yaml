@@ -1,0 +1,13 @@
+# Pseudo lesion masks for PlantVillage tomato, using the S0 segmenter.
+# Output is TRAINING-ONLY until verified. See CLAUDE.md section 6.
+#   python masks/pseudo_label.py --config configs/pseudo_label_tomato.yaml
+
+seed: 0
+crop: tomato
+class_map: data/class_map.csv
+
+image_root: data/raw/plantvillage/color
+leaf_mask_root: data/masks/leaf
+out_root: data/masks/lesion_pseudo
+checkpoint: weights/lesion_seg.pt
+threshold: 0.5

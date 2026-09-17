@@ -1,0 +1,14 @@
+# Human verification of pseudo lesion masks.
+#   1. python masks/verify_sheet.py  --config configs/verify_tomato.yaml
+#   2. open data/masks/verify/verify_sheet.html, fill data/masks/verify/verify.csv
+#   3. python masks/import_verified.py --config configs/verify_tomato.yaml
+
+seed: 0
+n_samples: 80          # spec default, stratified by class
+dataset_name: plantvillage
+
+image_root: data/raw/plantvillage
+pseudo_root: data/masks/lesion_pseudo
+human_root: data/masks/lesion_human
+out_dir: data/masks/verify
+fixed_dir: data/masks/verify/fixed   # CVAT exports for rows marked "fix"
