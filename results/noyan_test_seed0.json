@@ -1,0 +1,21 @@
+{
+  "replication_of": "Noyan (2022), Uncovering bias in the PlantVillage dataset",
+  "dataset": "plantvillage",
+  "seed": 0,
+  "classifier": "rf",
+  "n_features": 24,
+  "n_pixels": 8,
+  "n_train": 12000,
+  "n_test": 5431,
+  "n_classes": 38,
+  "chance_accuracy": 0.02631578947368421,
+  "accuracy": {
+    "point": 0.4389615172159823,
+    "lo": 0.42624746823789356,
+    "hi": 0.45221874424599523,
+    "n": 5431,
+    "resamples": 1000
+  },
+  "macro_f1": 0.3019079170648128,
+  "times_chance": 16.680537654207328
+}

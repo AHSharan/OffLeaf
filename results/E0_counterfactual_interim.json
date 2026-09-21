@@ -1,0 +1,126 @@
+{
+  "model": {
+    "source": "checkpoint",
+    "path": "runs/E0_resnet50/0/checkpoint.pt",
+    "model": "resnet50",
+    "num_classes": 38,
+    "exp_id": "E0_resnet50",
+    "seed": 0,
+    "regime": "baseline",
+    "lam": null,
+    "val_acc": 0.9955801104972376
+  },
+  "seed": 0,
+  "counterfactual": {
+    "per_cell": {
+      "lab_plain": {
+        "n": 200,
+        "accuracy": {
+          "point": 0.685,
+          "lo": 0.625,
+          "hi": 0.75,
+          "n": 200,
+          "resamples": 1000
+        },
+        "macro_f1": 0.11615091140313692
+      },
+      "lab_field": {
+        "n": 200,
+        "accuracy": {
+          "point": 0.295,
+          "lo": 0.235,
+          "hi": 0.355,
+          "n": 200,
+          "resamples": 1000
+        },
+        "macro_f1": 0.04141804141804142
+      },
+      "field_plain": {
+        "n": 200,
+        "accuracy": {
+          "point": 0.14,
+          "lo": 0.095,
+          "hi": 0.185,
+          "n": 200,
+          "resamples": 1000
+        },
+        "macro_f1": 0.0421262315520205
+      },
+      "field_field": {
+        "n": 200,
+        "accuracy": {
+          "point": 0.13,
+          "lo": 0.085,
+          "hi": 0.175,
+          "n": 200,
+          "resamples": 1000
+        },
+        "macro_f1": 0.02788518872152614
+      },
+      "paste_control": {
+        "n": 200,
+        "accuracy": {
+          "point": 0.77,
+          "lo": 0.715,
+          "hi": 0.825,
+          "n": 200,
+          "resamples": 1000
+        },
+        "macro_f1": 0.12429378531073446
+      }
+    },
+    "flip_rates": {
+      "lab_plain_vs_lab_field": {
+        "flip_rate": {
+          "point": 0.605,
+          "lo": 0.535,
+          "hi": 0.67,
+          "n": 200,
+          "resamples": 1000
+        },
+        "mean_abs_delta_confidence": {
+          "point": 0.2387620425224304,
+          "lo": 0.21492268698662517,
+          "hi": 0.2633357328251004,
+          "n": 200,
+          "resamples": 1000
+        },
+        "n_pairs": 200
+      },
+      "lab_plain_vs_paste_control": {
+        "flip_rate": {
+          "point": 0.345,
+          "lo": 0.275,
+          "hi": 0.41,
+          "n": 200,
+          "resamples": 1000
+        },
+        "mean_abs_delta_confidence": {
+          "point": 0.1573668213188648,
+          "lo": 0.13722172173112632,
+          "hi": 0.1782530186586082,
+          "n": 200,
+          "resamples": 1000
+        },
+        "n_pairs": 200
+      }
+    },
+    "unmapped_labels": {},
+    "gap_decomposition": {
+      "cell_accuracy": {
+        "lab_plain": 0.685,
+        "lab_field": 0.295,
+        "field_plain": 0.14,
+        "field_field": 0.13,
+        "paste_control": 0.77
+      },
+      "total_gap": 0.555,
+      "paste_artefact_cost": 0.0,
+      "background_effect": 0.39000000000000007,
+      "background_effect_uncorrected": 0.39000000000000007,
+      "leaf_appearance_effect": 0.545,
+      "background_share_of_gap": 0.7027027027027027,
+      "note": "background_effect is corrected by subtracting paste_artefact_cost. Effects are not required to sum to total_gap - they are separate interventions, and interactions between them are not measured."
+    }
+  }
+}
