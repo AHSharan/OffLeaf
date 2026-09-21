@@ -1,0 +1,45 @@
+# E2 - lambda dose-response. cam_penalty on PlantVillage TOMATO, lesion masks.
+#
+# AMP is force-disabled for cam_penalty (fp16 double backward -> NaN), so this
+# runs fp32 and is the memory-hungriest arm. batch_size 32 fits a 15 GB T4;
+# drop to 8 on a 6 GB card.
+#
+#   python train/train.py --config configs/E2_lam0_seed1.yaml --num_workers 2
+
+exp_id: E2_lam0
+seed: 1
+regime: cam_penalty
+
+mask_type: lesion
+mask_source: pseudo
+lam: 0
+shuffle_masks: false
+
+model: resnet50
+pretrained: true
+
+dataset_name: plantvillage
+split_dir: data/splits
+keep_classes:
+  - Tomato___Bacterial_spot
+  - Tomato___Early_blight
+  - Tomato___Late_blight
+  - Tomato___Leaf_Mold
+  - Tomato___Septoria_leaf_spot
+  - Tomato___Tomato_Yellow_Leaf_Curl_Virus
+  - Tomato___Tomato_mosaic_virus
+
+img_size: 224
+epochs: 10
+batch_size: 32
+lr: 3.0e-4
+weight_decay: 1.0e-4
+optimizer: adamw
+amp: true
+
+num_workers: 2
+log_every: 50
+deterministic: true
+
+leaf_mask_dir: data/masks/leaf
+lesion_mask_dir: data/masks/lesion_pseudo
