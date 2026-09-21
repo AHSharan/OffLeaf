@@ -1,0 +1,119 @@
+{
+  "best_epoch": 9,
+  "best_val_acc": 0.9979742173112339,
+  "epochs": 10,
+  "exp_id": "E0_resnet50",
+  "final_penalty": 0.0,
+  "final_val_acc": 0.997974,
+  "history": [
+    {
+      "epoch": 0,
+      "lr": 0.00029265847744427303,
+      "penalty": 0.0,
+      "penalty_grad_norm": 0.0,
+      "train_acc": 0.886475,
+      "train_ce": 0.42943,
+      "val_acc": 0.986372,
+      "val_loss": 0.039911
+    },
+    {
+      "epoch": 1,
+      "lr": 0.0002713525491562421,
+      "penalty": 0.0,
+      "penalty_grad_norm": 0.0,
+      "train_acc": 0.983473,
+      "train_ce": 0.052443,
+      "val_acc": 0.989319,
+      "val_loss": 0.029514
+    },
+    {
+      "epoch": 2,
+      "lr": 0.00023816778784387096,
+      "penalty": 0.0,
+      "penalty_grad_norm": 0.0,
+      "train_acc": 0.989389,
+      "train_ce": 0.034194,
+      "val_acc": 0.995212,
+      "val_loss": 0.014168
+    },
+    {
+      "epoch": 3,
+      "lr": 0.0001963525491562421,
+      "penalty": 0.0,
+      "penalty_grad_norm": 0.0,
+      "train_acc": 0.992473,
+      "train_ce": 0.023739,
+      "val_acc": 0.99558,
+      "val_loss": 0.011953
+    },
+    {
+      "epoch": 4,
+      "lr": 0.00015,
+      "penalty": 0.0,
+      "penalty_grad_norm": 0.0,
+      "train_acc": 0.994821,
+      "train_ce": 0.016991,
+      "val_acc": 0.997238,
+      "val_loss": 0.010673
+    },
+    {
+      "epoch": 5,
+      "lr": 0.0001036474508437579,
+      "penalty": 0.0,
+      "penalty_grad_norm": 0.0,
+      "train_acc": 0.996847,
+      "train_ce": 0.01082,
+      "val_acc": 0.997238,
+      "val_loss": 0.009359
+    },
+    {
+      "epoch": 6,
+      "lr": 6.183221215612905e-05,
+      "penalty": 0.0,
+      "penalty_grad_norm": 0.0,
+      "train_acc": 0.997836,
+      "train_ce": 0.007147,
+      "val_acc": 0.995948,
+      "val_loss": 0.01297
+    },
+    {
+      "epoch": 7,
+      "lr": 2.86474508437579e-05,
+      "penalty": 0.0,
+      "penalty_grad_norm": 0.0,
+      "train_acc": 0.998504,
+      "train_ce": 0.005131,
+      "val_acc": 0.997053,
+      "val_loss": 0.00881
+    },
+    {
+      "epoch": 8,
+      "lr": 7.341522555726971e-06,
+      "penalty": 0.0,
+      "penalty_grad_norm": 0.0,
+      "train_acc": 0.998803,
+      "train_ce": 0.003999,
+      "val_acc": 0.997606,
+      "val_loss": 0.007051
+    },
+    {
+      "epoch": 9,
+      "lr": 0.0,
+      "penalty": 0.0,
+      "penalty_grad_norm": 0.0,
+      "train_acc": 0.999171,
+      "train_ce": 0.002858,
+      "val_acc": 0.997974,
+      "val_loss": 0.006184
+    }
+  ],
+  "lam": 0.0,
+  "mask_source": null,
+  "mask_type": null,
+  "model": "resnet50",
+  "num_classes": 38,
+  "regime": "baseline",
+  "seed": 0,
+  "shuffle_masks": null,
+  "train_seconds": 5568.9
+}

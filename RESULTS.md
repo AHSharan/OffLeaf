@@ -2,8 +2,8 @@
 
 Headline numbers, kept in git because `runs/` is not tracked. Update as runs land.
 
-**Status: preliminary.** Everything below is from the E0 baseline at an *interim*
-checkpoint (epoch 3 of 10, val 0.9956). Final numbers will shift slightly.
+**Status:** E0 baseline complete (10 epochs, 92.8 min, best val 0.99797 @ epoch 9).
+Numbers below are from the **final** checkpoint unless marked otherwise.
 
 ---
 
@@ -137,3 +137,55 @@ leaf transfers better.
 - Human verification of 80 pseudo-masks, which is what makes `offlesion_mass`
   metric-grade. Until then only `offleaf_mass` (leaf-level, SAM masks) is
   reportable.
+
+---
+
+## 6. Training to convergence *hurts* field transfer
+
+The same E0 run, evaluated at two checkpoints:
+
+| | epoch 3 | epoch 9 (final) | change |
+|---|---|---|---|
+| Lab val accuracy | 0.9956 | **0.9980** | +0.24 pp |
+| **Field accuracy (PlantDoc)** | **0.2550** [0.2395, 0.2721] | **0.1953** [0.1802, 0.2101] | **−5.97 pp** |
+| `offleaf_mass` | 0.4886 | 0.4920 | +0.34 pp |
+| Background share of gap | 70.3% | 62.6% | −7.7 pp |
+
+The confidence intervals on field accuracy **do not overlap**. Six more epochs
+bought 0.24 points of lab accuracy and cost 6 points of field accuracy.
+
+**Implication:** selecting a checkpoint by validation accuracy — standard
+practice, and what this repo's `train.py` does — actively selects the *worse*
+field model. Longer training fits the shortcut harder.
+
+**Caveat, state this plainly:** this is **two checkpoints, not a curve.** Only
+the best-val checkpoint is saved, so the intermediate epochs no longer exist. We
+can say epoch 3 beat epoch 9; we cannot yet say the decline is monotonic. To
+claim the trend properly, re-run E0 saving every epoch and evaluate each on
+PlantDoc — roughly 93 min of training plus a few minutes of evaluation.
+
+### Final E0 counterfactual cells (epoch 9)
+
+| cell | accuracy |
+|---|---|
+| `paste_control` | 0.910 |
+| `lab_plain` | 0.865 |
+| `lab_field` | 0.405 |
+| `field_plain` | 0.170 |
+| `field_field` | 0.130 |
+
+Swapping only the background costs a **lab** leaf **46 points** (0.865 → 0.405).
+The reverse swap buys a **field** leaf **4 points** (0.130 → 0.170). The
+asymmetry from section 4 holds, and is larger on the better-trained model.
+
+### Final E0 lab/field summary
+
+| | |
+|---|---|
+| Lab test accuracy | **0.9978** [0.9965, 0.9991], n=5431 |
+| Lab macro F1 | 0.9968 |
+| Field accuracy | **0.1953** [0.1802, 0.2101], n=2580 |
+| Field macro F1 | 0.1380 |
+| `offleaf_mass` (field) | **0.4920** [0.4767, 0.5047] |
+
+**An 80-point lab-to-field collapse.**
