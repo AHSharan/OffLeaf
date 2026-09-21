@@ -1,0 +1,26 @@
+exp_id: E1c_bgremoval
+seed: 0
+regime: bgremoval
+image_variant: segmented
+
+model: resnet50
+pretrained: true
+num_classes: 38
+
+dataset_name: plantvillage
+split_dir: data/splits
+
+img_size: 224
+epochs: 10
+batch_size: 32
+lr: 3.0e-4
+weight_decay: 1.0e-4
+optimizer: adamw
+amp: true
+
+num_workers: 2
+log_every: 100
+deterministic: true
+
+leaf_mask_dir: null
+lesion_mask_dir: null
