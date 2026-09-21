@@ -74,6 +74,10 @@ def load_model(repo: Path, checkpoint: str | None, timm_model: str | None, devic
             "regime": ck.get("config", {}).get("regime"),
             "lam": ck.get("config", {}).get("lam"),
             "val_acc": ck.get("val_acc"),
+            # A run with keep_classes trained on a SUBSET and its loader remapped
+            # labels to 0..k-1. Scoring it against the full 38-class index would
+            # compare mismatched label spaces and produce nonsense.
+            "keep_classes": ck.get("config", {}).get("keep_classes"),
         }
     elif timm_model:
         raise SystemExit(
@@ -94,16 +98,43 @@ def class_index(repo: Path, dataset_name: str = "plantvillage") -> dict[str, int
     return {str(r.class_name): int(r.label) for r in df.itertuples()}
 
 
-def field_label_map(repo: Path, column: str) -> dict[str, int]:
-    """Field dataset folder name -> PlantVillage label index, via class_map.csv."""
+def subset_index(repo: Path, keep_classes: list[str] | None) -> dict[str, int]:
+    """Class name -> label index **in the model's own output space**.
+
+    ``train.py`` filters to ``keep_classes`` and then remaps labels to
+    ``0..k-1`` in sorted order of the original indices. This reproduces exactly
+    that mapping, so a 7-class tomato model is scored against the label space it
+    was actually trained on.
+
+    Raises:
+        ValueError: If a configured class is absent from the split index - that
+            means the config and the splits disagree, and silently scoring
+            against a shifted label space would be worse than failing.
+    """
+    full = class_index(repo)
+    if not keep_classes:
+        return full
+    missing = [c for c in keep_classes if c not in full]
+    if missing:
+        raise ValueError(
+            f"keep_classes names absent from the split class index: {missing}. "
+            "Regenerate splits, or fix the config."
+        )
+    kept = sorted(keep_classes, key=lambda c: full[c])
+    return {c: i for i, c in enumerate(kept)}
+
+
+def field_label_map(repo: Path, column: str, keep_classes: list[str] | None = None
+                    ) -> dict[str, int]:
+    """Field dataset folder name -> the model's label index, via class_map.csv."""
     cmap = pd.read_csv(repo / "data" / "class_map.csv")
-    pv_idx = class_index(repo)
+    idx = subset_index(repo, keep_classes)
     out: dict[str, int] = {}
     for row in cmap.to_dict("records"):
         field_name, pv_name = row.get(column), row.get("plantvillage_name")
         if isinstance(field_name, str) and field_name.strip() and isinstance(pv_name, str):
-            if pv_name in pv_idx:
-                out[field_name.strip()] = pv_idx[pv_name]
+            if pv_name in idx:
+                out[field_name.strip()] = idx[pv_name]
     return out
 
 
@@ -131,22 +162,32 @@ def gather_folder(root: Path, label_map: dict[str, int] | None):
     return paths, labels, dropped
 
 
-def build_eval_set(repo: Path, dataset: str, img_size: int):
-    """Returns ``(paths, labels, dropped, description)``."""
+def build_eval_set(repo: Path, dataset: str, img_size: int,
+                   keep_classes: list[str] | None = None):
+    """Returns ``(paths, labels, dropped, description)`` in the MODEL's label space."""
+    idx = subset_index(repo, keep_classes)
+
     if dataset == "plantvillage_test":
         p, y = load_split(repo / "data" / "splits" / "plantvillage_seed0_test.csv")
+        if keep_classes:
+            keep = set(keep_classes)
+            pairs = [(q, idx[q.parent.name]) for q in p if q.parent.name in keep]
+            if not pairs:
+                raise ValueError("No test images matched keep_classes")
+            return ([q for q, _ in pairs], [v for _, v in pairs], {},
+                    f"PlantVillage test, {len(keep)}-class subset (lab)")
         return p, y, {}, "PlantVillage held-out test split (lab)"
 
     if dataset == "plantdoc":
-        lm = field_label_map(repo, "plantdoc_name")
+        lm = field_label_map(repo, "plantdoc_name", keep_classes)
         p, y, dropped = gather_folder(repo / "data" / "raw" / "plantdoc", lm)
-        return p, y, dropped, "PlantDoc (field, zero-shot)"
+        suffix = f", {len(keep_classes)}-class subset" if keep_classes else ""
+        return p, y, dropped, f"PlantDoc (field, zero-shot{suffix})"
 
     root = Path(dataset)
     if not root.is_absolute():
         root = repo / dataset
-    lm = class_index(repo)
-    p, y, dropped = gather_folder(root, lm)
+    p, y, dropped = gather_folder(root, idx)
     return p, y, dropped, f"folder: {root}"
 
 
@@ -217,7 +258,8 @@ def run_eval(model, loader, device, methods: list[str], want_masks: bool,
     return out
 
 
-def counterfactual_eval(repo, model, device, img_size, batch_size, out_dir: Path) -> dict:
+def counterfactual_eval(repo, model, device, img_size, batch_size, out_dir: Path,
+                        keep_classes: list[str] | None = None) -> dict:
     """Score every cell of the background-swap benchmark and decompose the gap."""
     cf_root = repo / "data" / "counterfactual"
     index = cf_root / "index.csv"
@@ -233,8 +275,8 @@ def counterfactual_eval(repo, model, device, img_size, batch_size, out_dir: Path
     # PlantVillage label space. Mapping per source dataset is required or the two
     # field cells silently evaluate as empty - which is exactly what happened.
     label_maps = {
-        "plantvillage": class_index(repo),
-        "plantdoc": field_label_map(repo, "plantdoc_name"),
+        "plantvillage": subset_index(repo, keep_classes),
+        "plantdoc": field_label_map(repo, "plantdoc_name", keep_classes),
     }
 
     cell_acc, per_cell, by_id, unmapped = {}, {}, {}, {}
@@ -348,11 +390,14 @@ def main() -> None:
     if args.counterfactual:
         print("evaluating counterfactual benchmark...", flush=True)
         result["counterfactual"] = counterfactual_eval(
-            repo, model, device, args.img_size, args.batch_size, out_dir
+            repo, model, device, args.img_size, args.batch_size, out_dir,
+            meta.get("keep_classes")
         )
         tag = "counterfactual"
     else:
-        paths, labels, dropped, desc = build_eval_set(repo, args.dataset, args.img_size)
+        paths, labels, dropped, desc = build_eval_set(
+            repo, args.dataset, args.img_size, meta.get("keep_classes")
+        )
         if args.limit:
             paths, labels = paths[: args.limit], labels[: args.limit]
         if not paths:
