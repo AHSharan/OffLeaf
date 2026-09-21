@@ -143,8 +143,17 @@ class ViTWithAttention(nn.Module):
     def forward(self, x: Tensor) -> tuple[Tensor, Tensor]:
         """Returns ``(logits, patch_tokens)``.
 
-        ``patch_tokens`` is reshaped to ``B x C x H x W`` so that the same CAM
-        code path works for both backbones.
+        ``patch_tokens`` is reshaped to ``B x C x H x W`` so the same CAM code
+        path works for both backbones.
+
+        The head is deliberately re-fed from ``fmap`` rather than from ``feats``.
+        Reshaping ``feats`` into ``fmap`` and then calling the head on ``feats``
+        would leave the two as *siblings* in the autograd graph, and
+        ``autograd.grad(score, fmap)`` raises "One of the differentiated Tensors
+        appears to not have been used in the graph". Rebuilding the token
+        sequence from ``fmap`` puts it on the path to the logits, which is what
+        Grad-CAM and the training penalty both require. The round trip is a pure
+        reshape/transpose, so it changes no values.
         """
         m = self.backbone
         feats = m.forward_features(x)  # B x N x C (prefix tokens included)
@@ -157,7 +166,9 @@ class ViTWithAttention(nn.Module):
             raise ValueError(f"Non-square patch grid: {N} tokens")
         fmap = patches.transpose(1, 2).reshape(B, C, hw, hw)
 
-        logits = m.forward_head(feats)
+        patches_back = fmap.reshape(B, C, N).transpose(1, 2)
+        feats_for_head = torch.cat([feats[:, :n_prefix, :], patches_back], dim=1)
+        logits = m.forward_head(feats_for_head)
         return logits, fmap
 
 
