@@ -166,14 +166,31 @@ def make_loader(paths, labels, repo, img_size, batch_size, leaf_dir=None, lesion
 # --------------------------------------------------------------------------
 
 
-def run_eval(model, loader, device, methods: list[str], want_masks: bool):
-    """One pass: predictions, confidences, and optionally attribution maps."""
+def run_eval(model, loader, device, methods: list[str], want_masks: bool,
+             apply_leaf_mask: bool = False):
+    """One pass: predictions, confidences, and optionally attribution maps.
+
+    ``apply_leaf_mask`` zeroes everything outside the leaf before the forward
+    pass. It is **required** when scoring a ``bgremoval`` checkpoint: that model
+    trained only on leaves against a blank field, so showing it a full scene is
+    maximally out of distribution and measures the wrong thing. The spec calls
+    for it directly ("at eval apply the SAM leaf mask to test images").
+    """
     preds, confs, trues = [], [], []
     heat: dict[str, list] = {m: [] for m in methods}
     leaves, lesions = [], []
 
     for images, labels, leaf, lesion in loader:
         images = images.to(device, non_blocking=True)
+        if apply_leaf_mask:
+            m = leaf.to(device, non_blocking=True).unsqueeze(1)
+            if m.sum() == 0:
+                raise ValueError(
+                    "--apply_leaf_mask was passed but every leaf mask in this batch is "
+                    "empty. Generate leaf masks for this dataset first "
+                    "(masks/leaf_masks.py), or the model is being shown blank images."
+                )
+            images = images * m
         p, c = predict(model, images)
         preds.append(p.cpu().numpy())
         confs.append(c.cpu().numpy())
@@ -296,6 +313,12 @@ def main() -> None:
     ap.add_argument("--leaf_mask_dir", default="data/masks/leaf")
     ap.add_argument("--lesion_mask_dir", default="data/masks/lesion_human")
     ap.add_argument("--allow_pseudo", action="store_true")
+    ap.add_argument(
+        "--apply_leaf_mask",
+        action="store_true",
+        help="mask test images to the leaf before inference; REQUIRED for bgremoval "
+             "checkpoints (auto-enabled when the checkpoint says regime=bgremoval)",
+    )
     ap.add_argument("--img_size", type=int, default=224)
     ap.add_argument("--batch_size", type=int, default=32)
     ap.add_argument("--limit", type=int, default=None)
@@ -341,16 +364,26 @@ def main() -> None:
             for k, v in sorted(dropped.items()):
                 print(f"    {v:5d}  {k}", flush=True)
 
-        want_masks = bool(methods)
+        apply_mask = args.apply_leaf_mask
+        if meta.get("regime") == "bgremoval" and not apply_mask:
+            print(
+                "NOTE: checkpoint regime is bgremoval - auto-enabling --apply_leaf_mask. "
+                "Scoring it on unmasked scenes would measure out-of-distribution "
+                "behaviour, not the intervention.",
+                flush=True,
+            )
+            apply_mask = True
+        want_masks = bool(methods) or apply_mask
         loader = make_loader(
             paths, labels, repo, args.img_size, args.batch_size,
             leaf_dir=repo / args.leaf_mask_dir if want_masks else None,
             lesion_dir=repo / args.lesion_mask_dir if want_masks else None,
         )
-        res = run_eval(model, loader, device, methods, want_masks)
+        res = run_eval(model, loader, device, methods, want_masks, apply_leaf_mask=apply_mask)
 
         result["dataset"] = {"name": args.dataset, "description": desc, "n": len(paths),
-                             "dropped_classes": dropped}
+                             "dropped_classes": dropped,
+                             "leaf_mask_applied_at_eval": bool(apply_mask)}
         result["accuracy"] = accuracy_with_ci(res["true"], res["pred"], seed=args.seed)
         result["macro_f1"] = macro_f1(res["true"], res["pred"])
         result["mean_confidence"] = float(res["conf"].mean())
