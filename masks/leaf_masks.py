@@ -276,6 +276,24 @@ def run(cfg: dict, repo: Path, mobile_sam_override: bool | None = None) -> dict[
     log_path.parent.mkdir(parents=True, exist_ok=True)
     new_log = not log_path.exists()
 
+    # The log is append-only across runs, so an existing file may carry an older
+    # schema. Appending wider rows under a narrower header produces a CSV that
+    # pandas refuses to read ("Expected 4 fields, saw 5") - which is how this was
+    # found. Migrate the old file aside instead of corrupting it further.
+    if not new_log:
+        with open(log_path, newline="", encoding="utf-8") as fh:
+            existing_header = next(csv.reader(fh), [])
+        if "reliable" not in existing_header:
+            backup = log_path.with_suffix(".pre_reliability.csv")
+            log_path.replace(backup)
+            print(
+                f"NOTE: {log_path.name} used an older schema without 'reliable'. "
+                f"Moved to {backup.name} and starting a fresh log; masks on disk are "
+                "untouched and still skipped as already-done.",
+                flush=True,
+            )
+            new_log = True
+
     counts = {"sam": 0, "hsv_fallback": 0}
     t0 = time.time()
 

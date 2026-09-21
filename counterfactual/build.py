@@ -73,18 +73,52 @@ def read_mask(path: Path, shape_hw: tuple[int, int]) -> np.ndarray:
 
 
 def reliable_ids(log_path: Path) -> set[str] | None:
-    """Relative paths whose leaf mask is usable, or None if the log predates the flag."""
+    """Relative paths whose leaf mask is usable, or None if the log predates the flag.
+
+    Parsed with the ``csv`` module rather than pandas because the log is
+    append-only across runs and can legitimately hold **two schemas**: rows
+    written before the reliability fix have 4 fields, rows after have 5. pandas
+    reads the header width and then raises on the wider rows.
+
+    A row with no flag was produced by the old code, which could emit
+    whole-scene masks that looked fine on disk. Those are treated as
+    **unreliable** and excluded - conservative, because a cutout built from a
+    whole-scene mask is a picture of a field, not a leaf.
+    """
     if not log_path.exists():
         return None
-    df = pd.read_csv(log_path)
-    if "reliable" not in df.columns:
+
+    ok: set[str] = set()
+    legacy = 0
+    with open(log_path, newline="", encoding="utf-8") as fh:
+        reader = csv.reader(fh)
+        header = next(reader, None)
+        if header is None:
+            return None
+        has_flag = "reliable" in header
+        for row in reader:
+            if not row:
+                continue
+            if len(row) >= 5:
+                if row[4].strip() == "1":
+                    ok.add(row[0])
+            else:
+                legacy += 1
+
+    if legacy:
         print(
-            f"WARNING: {log_path} has no 'reliable' column - it predates the mask reliability "
-            "fix. Regenerate leaf masks, or cutouts may be built on whole-scene masks.",
+            f"NOTE: {legacy} row(s) in {log_path.name} predate the reliability flag and are "
+            "excluded from cutout sources. Regenerate those masks if you need them.",
+            flush=True,
+        )
+    if not has_flag and not ok:
+        print(
+            f"WARNING: {log_path} has no 'reliable' column at all - it predates the mask "
+            "reliability fix entirely. Regenerate leaf masks before trusting these cutouts.",
             flush=True,
         )
         return None
-    return set(df[df.reliable == 1].relative_path)
+    return ok
 
 
 # --------------------------------------------------------------------------
