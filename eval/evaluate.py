@@ -210,17 +210,27 @@ def counterfactual_eval(repo, model, device, img_size, batch_size, out_dir: Path
             "--config configs/counterfactual_tomato.yaml"
         )
     df = pd.read_csv(index)
-    pv_idx = class_index(repo)
 
-    cell_acc, per_cell, by_id = {}, {}, {}
+    # Labels in index.csv are the SOURCE dataset's folder names, so field cells
+    # carry PlantDoc names ("Tomato Early blight leaf") which are absent from the
+    # PlantVillage label space. Mapping per source dataset is required or the two
+    # field cells silently evaluate as empty - which is exactly what happened.
+    label_maps = {
+        "plantvillage": class_index(repo),
+        "plantdoc": field_label_map(repo, "plantdoc_name"),
+    }
+
+    cell_acc, per_cell, by_id, unmapped = {}, {}, {}, {}
     for cell in CELLS:
         sub = df[df.cell == cell]
         if sub.empty:
             continue
         paths, labels, ids = [], [], []
         for r in sub.to_dict("records"):
-            lab = pv_idx.get(str(r["label"]))
+            lmap = label_maps.get(str(r["source_dataset"]), {})
+            lab = lmap.get(str(r["label"]))
             if lab is None:
+                unmapped[str(r["label"])] = unmapped.get(str(r["label"]), 0) + 1
                 continue
             fp = cf_root / cell / f"{r['image_id']}.jpg"
             if not fp.exists():
@@ -257,7 +267,13 @@ def counterfactual_eval(repo, model, device, img_size, batch_size, out_dir: Path
                 [by_id[cell][i][1] for i in shared],
             )
 
-    out = {"per_cell": per_cell, "flip_rates": flips}
+    out = {"per_cell": per_cell, "flip_rates": flips, "unmapped_labels": unmapped}
+    if unmapped:
+        print(
+            f"WARNING: {sum(unmapped.values())} composite(s) had labels with no PlantVillage "
+            f"counterpart and were skipped: {sorted(unmapped)[:5]}",
+            flush=True,
+        )
     try:
         out["gap_decomposition"] = gap_decomposition(cell_acc)
     except KeyError as e:
