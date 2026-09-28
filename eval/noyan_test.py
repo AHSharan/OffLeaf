@@ -82,6 +82,8 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=None, help="cap train images (speed)")
     ap.add_argument("--classifier", choices=["logreg", "rf"], default="rf")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--save_model", action="store_true",
+                    help="persist the fitted classifier for the demo app")
     args = ap.parse_args()
 
     repo = Path(__file__).resolve().parents[1]
@@ -134,6 +136,17 @@ def main() -> None:
     out = Path(args.out) if args.out else repo / "runs" / "noyan_test" / f"seed{seed}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(result, indent=2), encoding="utf-8")
+
+    if args.save_model:
+        import joblib
+
+        model_path = out.parent / f"corner_classifier_seed{seed}.joblib"
+        joblib.dump(
+            {"scaler": scaler, "clf": clf, "insets": INSETS, "n_classes": n_classes,
+             "accuracy": acc, "chance": chance},
+            model_path,
+        )
+        print(f"saved classifier: {model_path}")
 
     print("\n=== corner-pixel test ===")
     print(f"  8 background pixels, {n_classes} classes")

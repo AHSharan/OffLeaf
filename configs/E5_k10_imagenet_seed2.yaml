@@ -1,0 +1,20 @@
+# E5 - few-shot field adaptation. k PlantDoc train photos per class, scored on
+# the unseen PlantDoc test split. init=pv starts from the PlantVillage baseline,
+# init=imagenet from plain ImageNet weights.
+#   python train/fewshot.py --config configs/E5_k10_imagenet_seed2.yaml
+exp_id: E5_k10_imagenet
+seed: 2
+k: 10
+init: imagenet
+init_checkpoint: runs/E0_resnet50/0/checkpoint.pt
+model: resnet50
+num_classes: 38
+plantdoc_root: data/raw/plantdoc
+img_size: 224
+epochs: 15
+batch_size: 16
+lr: 1.0e-4
+weight_decay: 1.0e-4
+amp: true
+num_workers: 2
+deterministic: true
