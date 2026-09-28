@@ -249,7 +249,7 @@ def fig_e5():
         return
     zero = pts[0][2]
     fig, ax = plt.subplots(figsize=(6.6, 3.5))
-    labels = ["Zero-shot"] + [f"k = {k}" for k, _, _ in pts]
+    labels = ["Zero-shot"] + [("All" if k == "all" else f"k = {k}") for k, _, _ in pts]
     vals = [zero] + [a for _, a, _ in pts]
     cols = [NEUTRAL] + [GOOD] * len(pts)
     if imnet:
