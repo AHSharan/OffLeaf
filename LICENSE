@@ -1,0 +1,47 @@
+OffLeaf Proprietary Licence (All Rights Reserved)
+
+Copyright (c) 2026 Amarhtaluri Hem Sharan Gupta (GitHub: AHSharan). All rights reserved.
+
+OffLeaf is owned solely byAmarhtaluri Hem Sharan Gupta. It is NOT open source, and no
+licence to use it is granted except as written below.
+
+1. NO COPYING OR REUSE
+
+   You may not copy, reproduce, modify, adapt, translate, merge, publish,
+   distribute, sublicense, sell, rent, host, or create derivative works from
+   this software, its source code, documentation, diagrams, trained model
+   weights, results or any other part of this repository, in whole or in
+   part, for any purpose — commercial or non-commercial, including academic,
+   research, coursework, hackathon or competition use — without prior written
+   permission from the copyright holder.
+
+2. VIEWING ON GITHUB
+
+   Being able to view this repository, or to use GitHub's fork feature as
+   required by the GitHub Terms of Service, does not grant any right to use,
+   copy, modify or distribute its contents beyond what those Terms require.
+
+3. MACHINE LEARNING AND DATASETS
+
+   The contents of this repository may not be used to train, fine-tune,
+   evaluate or benchmark machine-learning models, or be included in any
+   dataset, without prior written permission.
+
+4. THIRD-PARTY MATERIAL KEEPS ITS OWN LICENCE
+
+   Datasets, pretrained models and libraries used by OffLeaf (for example
+   PlantVillage, PlantDoc, PlantSeg, Segment Anything (SAM), and ImageNet-
+   pretrained ResNet weights) belong to their respective owners and remain
+   under their own licences. This licence applies only to the copyright
+   holder's own work, including where it is combined with that material.
+
+5. NO WARRANTY
+
+   This software is provided "as is", without warranty of any kind, express
+   or implied. In no event shall the copyright holder be liable for any
+   claim, damages or other liability arising from the software or its use.
+
+6. PERMISSION REQUESTS
+
+   To ask for permission, contact YOUR FULL NAME through
+   https://github.com/AHSharan
